@@ -1,0 +1,32 @@
+{
+  "versiyon": "1.0",
+  "kategoriler": {
+    "durum": [
+      { "id": "01_basarili", "ad": "Başarılı", "dosya": "01_basarili.webp" },
+      { "id": "02_uyari", "ad": "Uyarı", "dosya": "02_uyari.webp" },
+      { "id": "03_hata", "ad": "Hata", "dosya": "03_hata.webp" },
+      { "id": "04_calisiyor", "ad": "Çalışıyor", "dosya": "04_calisiyor.webp" },
+      { "id": "05_bekliyor", "ad": "Bekliyor", "dosya": "05_bekliyor.webp" },
+      { "id": "06_durdu", "ad": "Durdu", "dosya": "06_durdu.webp" },
+      { "id": "07_cevrimdisi", "ad": "Çevrimdışı", "dosya": "07_cevrimdisi.webp" },
+      { "id": "27_acil-durum", "ad": "Acil Durum", "dosya": "27_acil-durum.webp" }
+    ],
+    "telemetri": [
+      { "id": "16_gps-sinyali", "ad": "GPS / RTK", "dosya": "16_gps-sinyali.webp" },
+      { "id": "17_sinyal-gucu", "ad": "Sinyal Gücü", "dosya": "17_sinyal-gucu.webp" },
+      { "id": "18_pil-durumu", "ad": "Pil Durumu", "dosya": "18_pil-durumu.webp" },
+      { "id": "22_sicaklik", "ad": "Sıcaklık", "dosya": "22_sicaklik.webp" },
+      { "id": "23_nem-orani", "ad": "Nem Oranı", "dosya": "23_nem-orani.webp" },
+      { "id": "24_ruzgar", "ad": "Rüzgar Hızı", "dosya": "24_ruzgar.webp" },
+      { "id": "25_pusula", "ad": "Pusula / Yön", "dosya": "25_pusula.webp" }
+    ],
+    "kesif": [
+      { "id": "13_yilan-kamera", "ad": "Yılan Kamera (Endoskop)", "dosya": "13_yilan-kamera.webp" },
+      { "id": "14_drone", "ad": "Ducted-Fan Drone", "dosya": "14_drone.webp" },
+      { "id": "31_katmanlar", "ad": "Harita Katmanları", "dosya": "31_katmanlar.webp" },
+      { "id": "32_hedef", "ad": "Hedef Odaklama", "dosya": "32_hedef.webp" },
+      { "id": "33_analiz", "ad": "Spektral Analiz", "dosya": "33_analiz.webp" },
+      { "id": "28_bildirimler", "ad": "Bildirim Merkezi", "dosya": "28_bildirimler.webp" }
+    ]
+  }
+}
