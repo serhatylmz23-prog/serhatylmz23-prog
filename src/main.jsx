@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { KasifAssistant } from './kasif_asistan';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { SyMasterCore } from './components/SyMasterCore';
 import { SyWorldMonitorCore } from './components/SyWorldMonitorCore';
 import { SyDTSECore } from './components/SyDTSECore';
 import { SyAgentSwarmDashboard } from './components/SyAgentSwarmDashboard';
@@ -66,5 +69,10 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
+  </React.StrictMode>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <SyMasterCore />
   </React.StrictMode>
 );
