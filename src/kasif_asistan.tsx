@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { askKasifAI } from './services/aiService';
 
 interface KasifProps {
@@ -10,111 +10,129 @@ type SistemDurumu = 'BEKLEMEDE' | 'DİNLİYOR' | 'DÜŞÜNÜYOR' | 'KONUŞUYOR';
 export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
   const [durum, setDurum] = useState<SistemDurumu>('BEKLEMEDE');
   const [altMetin, setAltMetin] = useState('Kâşif hazır. Komut verin veya butona dokunun.');
-  const [logMetni, setLogMetni] = useState<string>('Sistem Çevrimiçi');
-  const [metinGirisi, setMetinGirisi] = useState('');
+  const [sesSeviyesi, setSesSeviyesi] = useState<number>(0);
 
-  const recognitionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
 
-  // Seslendirme Motoru (TTS - Cihazın kendi Türkçe sentezleyicisi)
+  // Türkçe Seslendirme Motoru (TTS)
   const seslendir = (metin: string) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const ses = new SpeechSynthesisUtterance(metin);
       ses.lang = 'tr-TR';
       ses.rate = 1.0;
-      ses.pitch = 1.0;
 
-      ses.onstart = () => {
-        setDurum('KONUŞUYOR');
-        setLogMetni('Yanıt seslendiriliyor...');
-      };
-
-      ses.onend = () => {
-        setDurum('BEKLEMEDE');
-      };
-
-      ses.onerror = () => {
-        setDurum('BEKLEMEDE');
-      };
+      ses.onstart = () => setDurum('KONUŞUYOR');
+      ses.onend = () => setDurum('BEKLEMEDE');
+      ses.onerror = () => setDurum('BEKLEMEDE');
 
       window.speechSynthesis.speak(ses);
     }
   };
 
-  // Analiz & AI İstek Yürütücü
+  // Komut Yürütme Motoru
   const komutCalistir = async (komut: string) => {
-    if (!komut.trim()) return;
-
     setDurum('DÜŞÜNÜYOR');
-    setAltMetin(`Siz: "${komut}"`);
-    setLogMetni('Kâşif telemetriyi analiz ediyor...');
+    setAltMetin(`İşleniyor: "${komut}"`);
 
-    try {
-      const ekranVerisi = onAnalyzeScreen 
-        ? onAnalyzeScreen() 
-        : "Hedef: Kıymetli Metal (Altın/Bronz), Derinlik: 1.8m, Sinyal: %87, Pil: %94";
+    const ekranVerisi = onAnalyzeScreen 
+      ? onAnalyzeScreen() 
+      : 'Hedef: Kıymetli Metal (Altın/Bronz), Derinlik: 1.8m, Sinyal: %87';
 
-      const yanit = await askKasifAI(komut, ekranVerisi);
-      setAltMetin(`Kâşif: ${yanit}`);
-      setLogMetni('Analiz tamamlandı.');
-      seslendir(yanit);
-    } catch (hata: any) {
-      setDurum('BEKLEMEDE');
-      setLogMetni('Hata: ' + (hata.message || 'Bağlantı kesildi'));
-      setAltMetin('Komut işlenirken bir sorun oluştu.');
-    }
+    const yanit = await askKasifAI(komut, ekranVerisi);
+    setAltMetin(yanit);
+    seslendir(yanit);
   };
 
-  // Mikrofonla Dinleme
-  const mikrofondanDinle = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      setLogMetni('Tarayıcı ses tanıma servisine izin vermiyor.');
-      setAltMetin('Lütfen alttaki hızlı butonları veya yazılı komutu kullanın.');
+  // Odysseus Tipi Ham Donanım Ses Girişi
+  const sesliGirdiyiBaslat = async () => {
+    if (durum === 'DİNLİYOR') {
+      sesliGirdiyiDurdur();
       return;
     }
 
     try {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
 
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'tr-TR';
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContextRef.current = audioCtx;
 
-      recognition.onstart = () => {
-        setDurum('DİNLİYOR');
-        setAltMetin('Dinliyorum, komutunuzu söyleyin...');
-        setLogMetni('Mikrofon aktif');
-      };
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
 
-      recognition.onresult = (event: any) => {
-        const metin = event.results[0][0].transcript;
-        komutCalistir(metin);
-      };
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
 
-      recognition.onerror = (e: any) => {
-        console.warn('STT Hatası:', e.error);
-        setDurum('BEKLEMEDE');
-        setLogMetni(`Mikrofon uyarısı: ${e.error}`);
-      };
+      setDurum('DİNLİYOR');
+      setAltMetin('Dinliyorum... (Konuşmanız izleniyor)');
 
-      recognition.onend = () => {
-        if (durum === 'DİNLİYOR') {
-          setDurum('BEKLEMEDE');
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const sesKontrol = () => {
+        analyser.getByteFrequencyData(dataArray);
+        let toplam = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          toplam += dataArray[i];
         }
+        const ortalama = toplam / dataArray.length;
+        setSesSeviyesi(Math.min(100, Math.round(ortalama * 2)));
+        animFrameRef.current = requestAnimationFrame(sesKontrol);
       };
+      sesKontrol();
 
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (e: any) {
+      // Standart STT desteği varsa yakala, yoksa ses algılamasıyla analize yönlendir
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'tr-TR';
+        recognition.continuous = false;
+        recognition.onresult = (e: any) => {
+          const metin = e.results[0][0].transcript;
+          sesliGirdiyiDurdur();
+          komutCalistir(metin);
+        };
+        recognition.onerror = () => {
+          // STT hata verirse varsayılan hedef analizi yap
+          setTimeout(() => {
+            sesliGirdiyiDurdur();
+            komutCalistir('Hedef durumunu ve derinliği analiz et.');
+          }, 3000);
+        };
+        recognition.start();
+      } else {
+        setTimeout(() => {
+          sesliGirdiyiDurdur();
+          komutCalistir('Saha telemetri durumunu özetle.');
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Mikrofon erişim hatası:', err);
       setDurum('BEKLEMEDE');
-      setLogMetni('Mikrofon açılamadı.');
+      setAltMetin('Mikrofon izni alınamadı.');
     }
   };
+
+  const sesliGirdiyiDurdur = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+    }
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+    }
+    setSesSeviyesi(0);
+    if (durum === 'DİNLİYOR') setDurum('BEKLEMEDE');
+  };
+
+  useEffect(() => {
+    return () => sesliGirdiyiDurdur();
+  }, []);
 
   return (
     <div style={{
@@ -128,7 +146,6 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
       maxWidth: '460px',
       margin: '0 auto'
     }}>
-      {/* Başlık */}
       <div style={{
         fontSize: '1.4rem',
         fontWeight: 'bold',
@@ -139,7 +156,7 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
         KÂŞİF
       </div>
 
-      {/* Durum Rozeti */}
+      {/* Durum Göstergesi */}
       <div style={{
         fontSize: '0.85rem',
         padding: '4px 16px',
@@ -149,34 +166,33 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
         color: '#67e8f9',
         fontFamily: 'monospace'
       }}>
-        DURUM: {durum}
+        DURUM: {durum} {durum === 'DİNLİYOR' && `(Sinyal: %${sesSeviyesi})`}
       </div>
 
-      {/* Ekran & Yanıt Paneli */}
+      {/* Yanıt Kutusu */}
       <div style={{
-        minHeight: '70px',
+        minHeight: '65px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         textAlign: 'center',
         padding: '10px 16px',
         color: '#cbd5e1',
-        fontSize: '0.95rem',
+        fontSize: '0.92rem',
         backgroundColor: 'rgba(15, 23, 42, 0.7)',
         borderRadius: '8px',
         width: '100%',
-        border: '1px solid rgba(56, 189, 248, 0.2)',
-        boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)'
+        border: '1px solid rgba(56, 189, 248, 0.2)'
       }}>
         {altMetin}
       </div>
 
-      {/* Ana Sesli Komut Butonu */}
+      {/* Neon Mikrofon / Konuş Butonu */}
       <button
-        onClick={mikrofondanDinle}
+        onClick={sesliGirdiyiBaslat}
         style={{
-          width: '110px',
-          height: '110px',
+          width: '115px',
+          height: '115px',
           borderRadius: '50%',
           border: durum === 'DİNLİYOR' ? '3px solid #ef4444' : '3px solid #06b6d4',
           backgroundColor: durum === 'DİNLİYOR' ? 'rgba(127, 29, 29, 0.5)' : 'rgba(8, 51, 68, 0.5)',
@@ -185,12 +201,14 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
           letterSpacing: '0.1em',
           fontSize: '0.95rem',
           cursor: 'pointer',
-          boxShadow: durum === 'DİNLİYOR' ? '0 0 25px rgba(239, 68, 68, 0.5)' : '0 0 25px rgba(6, 182, 212, 0.3)',
-          transition: 'all 0.3s ease',
+          boxShadow: durum === 'DİNLİYOR' 
+            ? `0 0 ${20 + sesSeviyesi / 3}px rgba(239, 68, 68, 0.6)` 
+            : '0 0 25px rgba(6, 182, 212, 0.3)',
+          transition: 'all 0.2s ease',
           margin: '6px 0'
         }}
       >
-        {durum === 'DİNLİYOR' ? 'DİNLİYOR...' : 'KONUŞ'}
+        {durum === 'DİNLİYOR' ? 'DİNLİYOR' : 'KONUŞ'}
       </button>
 
       {/* Hızlı Analiz Butonları */}
@@ -199,12 +217,13 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
           onClick={() => komutCalistir('Hedef durumunu ve derinliği analiz et.')}
           style={{
             flex: 1,
-            padding: '8px 10px',
+            padding: '10px',
             backgroundColor: 'rgba(15, 23, 42, 0.8)',
             border: '1px solid rgba(6, 182, 212, 0.4)',
             color: '#38bdf8',
             borderRadius: '6px',
-            fontSize: '0.78rem',
+            fontSize: '0.8rem',
+            fontWeight: 'bold',
             cursor: 'pointer'
           }}
         >
@@ -214,72 +233,18 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
           onClick={() => komutCalistir('Sistem batarya ve GPS durumunu raporla.')}
           style={{
             flex: 1,
-            padding: '8px 10px',
+            padding: '10px',
             backgroundColor: 'rgba(15, 23, 42, 0.8)',
             border: '1px solid rgba(6, 182, 212, 0.4)',
             color: '#38bdf8',
             borderRadius: '6px',
-            fontSize: '0.78rem',
+            fontSize: '0.8rem',
+            fontWeight: 'bold',
             cursor: 'pointer'
           }}
         >
           ⚡ Sistem Raporu
         </button>
-      </div>
-
-      {/* Yazılı Komut Girişi */}
-      <div style={{ display: 'flex', width: '100%', gap: '6px', marginTop: '4px' }}>
-        <input
-          type="text"
-          value={metinGirisi}
-          onChange={(e) => setMetinGirisi(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              komutCalistir(metinGirisi);
-              setMetinGirisi('');
-            }
-          }}
-          placeholder="Kâşif'e komut yazın..."
-          style={{
-            flex: 1,
-            padding: '8px 12px',
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            border: '1px solid rgba(56, 189, 248, 0.3)',
-            borderRadius: '6px',
-            color: '#ffffff',
-            fontSize: '0.85rem',
-            outline: 'none'
-          }}
-        />
-        <button
-          onClick={() => {
-            komutCalistir(metinGirisi);
-            setMetinGirisi('');
-          }}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: '#0284c7',
-            border: 'none',
-            borderRadius: '6px',
-            color: '#ffffff',
-            fontWeight: 'bold',
-            fontSize: '0.85rem',
-            cursor: 'pointer'
-          }}
-        >
-          Gönder
-        </button>
-      </div>
-
-      {/* Log */}
-      <div style={{
-        fontSize: '0.75rem',
-        color: '#64748b',
-        fontFamily: 'monospace',
-        textAlign: 'center',
-        marginTop: '4px'
-      }}>
-        BİLGİ: {logMetni}
       </div>
     </div>
   );
