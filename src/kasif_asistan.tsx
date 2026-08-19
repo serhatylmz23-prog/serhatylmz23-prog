@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { askKasifAI } from './services/aiService';
 
 interface KasifProps {
@@ -9,129 +9,169 @@ type SistemDurumu = 'BEKLEMEDE' | 'DİNLİYOR' | 'DÜŞÜNÜYOR' | 'KONUŞUYOR';
 
 export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
   const [durum, setDurum] = useState<SistemDurumu>('BEKLEMEDE');
-  const [altMetin, setAltMetin] = useState('Kâşif hazır. Komut verin veya butona dokunun.');
+  const [altMetin, setAltMetin] = useState('Kâşif hazır. Karşılıklı diyalog için "Sohbeti Başlat"a basın.');
   const [sesSeviyesi, setSesSeviyesi] = useState<number>(0);
+  const [otomatikMod, setOtomatikMod] = useState<boolean>(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const otomatikModRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    otomatikModRef.current = otomatikMod;
+  }, [otomatikMod]);
 
   // Türkçe Seslendirme Motoru (TTS)
-  const seslendir = (metin: string) => {
+  const seslendir = useCallback((metin: string) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const ses = new SpeechSynthesisUtterance(metin);
       ses.lang = 'tr-TR';
       ses.rate = 1.0;
 
-      ses.onstart = () => setDurum('KONUŞUYOR');
-      ses.onend = () => setDurum('BEKLEMEDE');
-      ses.onerror = () => setDurum('BEKLEMEDE');
+      ses.onstart = () => {
+        setDurum('KONUŞUYOR');
+      };
+
+      ses.onend = () => {
+        setDurum('BEKLEMEDE');
+        // Kâşif konuşmasını bitirince otomatik mod açıksa hemen tekrar dinlemeye geçer
+        if (otomatikModRef.current) {
+          setTimeout(() => {
+            sesliGirdiyiBaslat();
+          }, 400);
+        }
+      };
+
+      ses.onerror = () => {
+        setDurum('BEKLEMEDE');
+        if (otomatikModRef.current) {
+          setTimeout(() => {
+            sesliGirdiyiBaslat();
+          }, 400);
+        }
+      };
 
       window.speechSynthesis.speak(ses);
     }
-  };
+  }, []);
 
   // Komut Yürütme Motoru
   const komutCalistir = async (komut: string) => {
     setDurum('DÜŞÜNÜYOR');
-    setAltMetin(`İşleniyor: "${komut}"`);
+    setAltMetin(`Algılandı: "${komut}"`);
 
     const ekranVerisi = onAnalyzeScreen 
       ? onAnalyzeScreen() 
-      : 'Hedef: Kıymetli Metal (Altın/Bronz), Derinlik: 1.8m, Sinyal: %87';
+      : 'Hedef: Kıymetli Metal, Derinlik: 1.8m, Sinyal: %87, GPS: 38.6748, 39.2225';
 
     const yanit = await askKasifAI(komut, ekranVerisi);
     setAltMetin(yanit);
     seslendir(yanit);
   };
 
-  // Odysseus Tipi Ham Donanım Ses Girişi
+  // Dinleme Motoru
   const sesliGirdiyiBaslat = async () => {
-    if (durum === 'DİNLİYOR') {
-      sesliGirdiyiDurdur();
-      return;
-    }
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
+      if (!mediaStreamRef.current) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
 
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioContextRef.current = audioCtx;
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioContextRef.current = audioCtx;
 
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyserRef.current = analyser;
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        analyserRef.current = analyser;
 
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const sesKontrol = () => {
+          analyser.getByteFrequencyData(dataArray);
+          let toplam = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            toplam += dataArray[i];
+          }
+          const ortalama = toplam / dataArray.length;
+          setSesSeviyesi(Math.min(100, Math.round(ortalama * 2)));
+          animFrameRef.current = requestAnimationFrame(sesKontrol);
+        };
+        sesKontrol();
+      }
 
       setDurum('DİNLİYOR');
-      setAltMetin('Dinliyorum... (Konuşmanız izleniyor)');
+      setAltMetin('Sizi dinliyorum, konuşabilirsiniz...');
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const sesKontrol = () => {
-        analyser.getByteFrequencyData(dataArray);
-        let toplam = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          toplam += dataArray[i];
-        }
-        const ortalama = toplam / dataArray.length;
-        setSesSeviyesi(Math.min(100, Math.round(ortalama * 2)));
-        animFrameRef.current = requestAnimationFrame(sesKontrol);
-      };
-      sesKontrol();
-
-      // Standart STT desteği varsa yakala, yoksa ses algılamasıyla analize yönlendir
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
+        if (recognitionRef.current) {
+          recognitionRef.current.abort();
+        }
         const recognition = new SpeechRecognition();
         recognition.lang = 'tr-TR';
         recognition.continuous = false;
+        recognition.interimResults = false;
+
         recognition.onresult = (e: any) => {
           const metin = e.results[0][0].transcript;
-          sesliGirdiyiDurdur();
           komutCalistir(metin);
         };
-        recognition.onerror = () => {
-          // STT hata verirse varsayılan hedef analizi yap
-          setTimeout(() => {
-            sesliGirdiyiDurdur();
-            komutCalistir('Hedef durumunu ve derinliği analiz et.');
-          }, 3000);
+
+        recognition.onerror = (e: any) => {
+          console.warn('STT uyarısı:', e.error);
+          if (otomatikModRef.current && e.error === 'no-speech') {
+            // Sessizlik durumunda dinlemeyi canlı tut
+            setTimeout(() => {
+              if (otomatikModRef.current) sesliGirdiyiBaslat();
+            }, 300);
+          } else {
+            setDurum('BEKLEMEDE');
+          }
         };
+
+        recognitionRef.current = recognition;
         recognition.start();
-      } else {
-        setTimeout(() => {
-          sesliGirdiyiDurdur();
-          komutCalistir('Saha telemetri durumunu özetle.');
-        }, 3000);
       }
     } catch (err) {
       console.error('Mikrofon erişim hatası:', err);
       setDurum('BEKLEMEDE');
-      setAltMetin('Mikrofon izni alınamadı.');
+      setAltMetin('Mikrofon bağlantısı kurulamadı.');
     }
   };
 
-  const sesliGirdiyiDurdur = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+  const sohbetModunuDegistir = () => {
+    if (otomatikMod) {
+      setOtomatikMod(false);
+      setDurum('BEKLEMEDE');
+      setAltMetin('Karşılıklı konuşma durduruldu.');
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      if (recognitionRef.current) recognitionRef.current.abort();
+    } else {
+      setOtomatikMod(true);
+      sesliGirdiyiBaslat();
     }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-    }
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-    }
-    setSesSeviyesi(0);
-    if (durum === 'DİNLİYOR') setDurum('BEKLEMEDE');
   };
 
   useEffect(() => {
-    return () => sesliGirdiyiDurdur();
+    return () => {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
   }, []);
 
   return (
@@ -161,12 +201,12 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
         fontSize: '0.85rem',
         padding: '4px 16px',
         borderRadius: '6px',
-        border: '1px solid rgba(6, 182, 212, 0.4)',
-        backgroundColor: 'rgba(8, 51, 68, 0.6)',
-        color: '#67e8f9',
+        border: `1px solid ${otomatikMod ? '#22c55e' : 'rgba(6, 182, 212, 0.4)'}`,
+        backgroundColor: otomatikMod ? 'rgba(20, 83, 45, 0.6)' : 'rgba(8, 51, 68, 0.6)',
+        color: otomatikMod ? '#86efac' : '#67e8f9',
         fontFamily: 'monospace'
       }}>
-        DURUM: {durum} {durum === 'DİNLİYOR' && `(Sinyal: %${sesSeviyesi})`}
+        MOD: {otomatikMod ? 'CANLI KARŞILIKLI DİYALOG' : 'MANUEL'} | DURUM: {durum} {durum === 'DİNLİYOR' && `(%${sesSeviyesi})`}
       </div>
 
       {/* Yanıt Kutusu */}
@@ -187,31 +227,32 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
         {altMetin}
       </div>
 
-      {/* Neon Mikrofon / Konuş Butonu */}
+      {/* Ana Karşılıklı Konuşma / Canlı Sohbet Butonu */}
       <button
-        onClick={sesliGirdiyiBaslat}
+        onClick={sohbetModunuDegistir}
         style={{
-          width: '115px',
-          height: '115px',
+          width: '130px',
+          height: '130px',
           borderRadius: '50%',
-          border: durum === 'DİNLİYOR' ? '3px solid #ef4444' : '3px solid #06b6d4',
-          backgroundColor: durum === 'DİNLİYOR' ? 'rgba(127, 29, 29, 0.5)' : 'rgba(8, 51, 68, 0.5)',
-          color: durum === 'DİNLİYOR' ? '#f87171' : '#22d3ee',
+          border: otomatikMod ? '3px solid #22c55e' : '3px solid #06b6d4',
+          backgroundColor: otomatikMod ? 'rgba(20, 83, 45, 0.5)' : 'rgba(8, 51, 68, 0.5)',
+          color: otomatikMod ? '#86efac' : '#22d3ee',
           fontWeight: 'bold',
-          letterSpacing: '0.1em',
-          fontSize: '0.95rem',
+          letterSpacing: '0.08em',
+          fontSize: '0.88rem',
           cursor: 'pointer',
-          boxShadow: durum === 'DİNLİYOR' 
-            ? `0 0 ${20 + sesSeviyesi / 3}px rgba(239, 68, 68, 0.6)` 
-            : '0 0 25px rgba(6, 182, 212, 0.3)',
+          boxShadow: otomatikMod 
+            ? `0 0 ${25 + sesSeviyesi / 2}px rgba(34, 197, 94, 0.7)` 
+            : '0 0 20px rgba(6, 182, 212, 0.3)',
           transition: 'all 0.2s ease',
-          margin: '6px 0'
+          margin: '6px 0',
+          textAlign: 'center'
         }}
       >
-        {durum === 'DİNLİYOR' ? 'DİNLİYOR' : 'KONUŞ'}
+        {otomatikMod ? (durum === 'KONUŞUYOR' ? 'KÂŞİF ANLATIYOR' : 'DİNLİYOR...') : 'SOHBETİ BAŞLAT'}
       </button>
 
-      {/* Hızlı Analiz Butonları */}
+      {/* Manuel Hızlı Analiz Butonları */}
       <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'center' }}>
         <button
           onClick={() => komutCalistir('Hedef durumunu ve derinliği analiz et.')}
