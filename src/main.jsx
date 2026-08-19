@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { KasifAssistant } from './kasif_asistan';
+import { SyWorldMonitorCore } from './components/SyWorldMonitorCore';
 import { SyFrameVisionAnalyzer } from './components/SyFrameVisionAnalyzer';
 import { SyAgentSwarmDashboard } from './components/SyAgentSwarmDashboard';
 import { SyEcosystemDashboard } from './data/SyEcosystemDashboard';
@@ -82,6 +83,7 @@ function App() {
         {sekme === 'HERITAGE' && <SyFrameVisionAnalyzer />}
         {sekme === 'AJANLAR' && <SyAgentSwarmDashboard />}
         {sekme === 'EKOSISTEM' && <SyEcosystemDashboard />}
+        {sekme === 'WORLDMONITOR' && <SyWorldMonitorCore />}
       </main>
     </div>
   );
