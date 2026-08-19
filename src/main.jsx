@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { KasifAssistant } from './kasif_asistan';
+import { SyDTSECore } from './components/SyDTSECore';
 import { SyWorldMonitorCore } from './components/SyWorldMonitorCore';
 import { SyFrameVisionAnalyzer } from './components/SyFrameVisionAnalyzer';
 import { SyAgentSwarmDashboard } from './components/SyAgentSwarmDashboard';
@@ -39,6 +40,7 @@ function App() {
           >
             🎯 KANIT & ANOMALİ (EDS)
           </button>
+          <button onClick={() => setSekme('DTSE')}>🧭 DTSE 7 AŞAMALI DİJİTAL İKİZ</button>
 
           <button
             onClick={() => setSekme('AJANLAR')}
@@ -83,6 +85,7 @@ function App() {
         {sekme === 'HERITAGE' && <SyFrameVisionAnalyzer />}
         {sekme === 'AJANLAR' && <SyAgentSwarmDashboard />}
         {sekme === 'EKOSISTEM' && <SyEcosystemDashboard />}
+        {sekme === 'DTSE' && <SyDTSECore />}
         {sekme === 'WORLDMONITOR' && <SyWorldMonitorCore />}
       </main>
     </div>
