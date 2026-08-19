@@ -1,81 +1,76 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { askKasifAI } from './services/aiService';
 
 interface KasifProps {
   onAnalyzeScreen?: () => string;
 }
 
-type SistemDurumu = 'BEKLEMEDE' | 'DİNLİYOR' | 'DÜŞÜNÜYOR' | 'KONUŞUYOR';
-
 export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
-  const [durum, setDurum] = useState<SistemDurumu>('BEKLEMEDE');
-  const [altMetin, setAltMetin] = useState('Kâşif hazır. Karşılıklı diyalog için "Sohbeti Başlat"a basın.');
-  const [sesSeviyesi, setSesSeviyesi] = useState<number>(0);
-  const [otomatikMod, setOtomatikMod] = useState<boolean>(false);
+  const [durum, setDurum] = useState<'BEKLEMEDE' | 'DİNLİYOR' | 'DÜŞÜNÜYOR' | 'KONUŞUYOR'>('BEKLEMEDE');
+  const [yanitMetni, setYanitMetni] = useState('Kâşif devrede. Dinlemeye hazır.');
+  const [sesGucu, setSesGucu] = useState<number>(0);
+  const [canliDiyalog, setCanliDiyalog] = useState<boolean>(false);
+  const [metinGirisi, setMetinGirisi] = useState<string>('');
 
+  const canliDiyalogRef = useRef<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
-  const otomatikModRef = useRef<boolean>(false);
+  const sesAlgilandiRef = useRef<boolean>(false);
 
   useEffect(() => {
-    otomatikModRef.current = otomatikMod;
-  }, [otomatikMod]);
+    canliDiyalogRef.current = canliDiyalog;
+  }, [canliDiyalog]);
 
   // Türkçe Seslendirme Motoru (TTS)
-  const seslendir = useCallback((metin: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const ses = new SpeechSynthesisUtterance(metin);
-      ses.lang = 'tr-TR';
-      ses.rate = 1.0;
+  const seslendir = (metin: string) => {
+    if (!('speechSynthesis' in window)) return;
 
-      ses.onstart = () => {
-        setDurum('KONUŞUYOR');
-      };
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(metin);
+    utterance.lang = 'tr-TR';
+    utterance.rate = 1.05;
 
-      ses.onend = () => {
-        setDurum('BEKLEMEDE');
-        // Kâşif konuşmasını bitirince otomatik mod açıksa hemen tekrar dinlemeye geçer
-        if (otomatikModRef.current) {
-          setTimeout(() => {
-            sesliGirdiyiBaslat();
-          }, 400);
-        }
-      };
+    utterance.onstart = () => setDurum('KONUŞUYOR');
+    utterance.onend = () => {
+      setDurum('BEKLEMEDE');
+      if (canliDiyalogRef.current) {
+        setTimeout(() => {
+          dinlemeyiBaslat();
+        }, 500);
+      }
+    };
+    utterance.onerror = () => {
+      setDurum('BEKLEMEDE');
+      if (canliDiyalogRef.current) {
+        setTimeout(() => {
+          dinlemeyiBaslat();
+        }, 500);
+      }
+    };
 
-      ses.onerror = () => {
-        setDurum('BEKLEMEDE');
-        if (otomatikModRef.current) {
-          setTimeout(() => {
-            sesliGirdiyiBaslat();
-          }, 400);
-        }
-      };
-
-      window.speechSynthesis.speak(ses);
-    }
-  }, []);
-
-  // Komut Yürütme Motoru
-  const komutCalistir = async (komut: string) => {
-    setDurum('DÜŞÜNÜYOR');
-    setAltMetin(`Algılandı: "${komut}"`);
-
-    const ekranVerisi = onAnalyzeScreen 
-      ? onAnalyzeScreen() 
-      : 'Hedef: Kıymetli Metal, Derinlik: 1.8m, Sinyal: %87, GPS: 38.6748, 39.2225';
-
-    const yanit = await askKasifAI(komut, ekranVerisi);
-    setAltMetin(yanit);
-    seslendir(yanit);
+    window.speechSynthesis.speak(utterance);
   };
 
-  // Dinleme Motoru
-  const sesliGirdiyiBaslat = async () => {
+  // Komut ve Telemetri İşleme
+  const komutIsle = async (kullaniciKomutu: string) => {
+    setDurum('DÜŞÜNÜYOR');
+    setYanitMetni(`Analiz ediliyor: "${kullaniciKomutu}"`);
+
+    const telemetri = onAnalyzeScreen 
+      ? onAnalyzeScreen() 
+      : 'Hedef: Değerli Metal / Derinlik: 1.85m / Sinyal: %88 / Batarya: %92';
+
+    const cevap = await askKasifAI(kullaniciKomutu, telemetri);
+    setYanitMetni(cevap);
+    seslendir(cevap);
+  };
+
+  // Ses Dinleme ve Seviye Algılama
+  const dinlemeyiBaslat = async () => {
     try {
+      sesAlgilandiRef.current = false;
+
       if (!mediaStreamRef.current) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaStreamRef.current = stream;
@@ -85,208 +80,229 @@ export const KasifAssistant: React.FC<KasifProps> = ({ onAnalyzeScreen }) => {
 
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 256;
-        analyserRef.current = analyser;
-
         const source = audioCtx.createMediaStreamSource(stream);
         source.connect(analyser);
 
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        const sesKontrol = () => {
+        const checkAudio = () => {
           analyser.getByteFrequencyData(dataArray);
-          let toplam = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            toplam += dataArray[i];
-          }
-          const ortalama = toplam / dataArray.length;
-          setSesSeviyesi(Math.min(100, Math.round(ortalama * 2)));
-          animFrameRef.current = requestAnimationFrame(sesKontrol);
+          const avg = dataArray.reduce((p, c) => p + c, 0) / dataArray.length;
+          const level = Math.min(100, Math.round(avg * 2.2));
+          setSesGucu(level);
+          if (level > 25) sesAlgilandiRef.current = true;
+          requestAnimationFrame(checkAudio);
         };
-        sesKontrol();
+        checkAudio();
       }
 
       setDurum('DİNLİYOR');
-      setAltMetin('Sizi dinliyorum, konuşabilirsiniz...');
+      setYanitMetni('Dinliyorum, konuşabilirsiniz...');
 
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
-        if (recognitionRef.current) {
-          recognitionRef.current.abort();
-        }
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'tr-TR';
-        recognition.continuous = false;
-        recognition.interimResults = false;
+        if (recognitionRef.current) recognitionRef.current.abort();
 
-        recognition.onresult = (e: any) => {
-          const metin = e.results[0][0].transcript;
-          komutCalistir(metin);
+        const recog = new SpeechRecognition();
+        recog.lang = 'tr-TR';
+        recog.continuous = false;
+        recog.interimResults = false;
+
+        recog.onresult = (e: any) => {
+          const transkript = e.results[0][0].transcript;
+          komutIsle(transkript);
         };
 
-        recognition.onerror = (e: any) => {
-          console.warn('STT uyarısı:', e.error);
-          if (otomatikModRef.current && e.error === 'no-speech') {
-            // Sessizlik durumunda dinlemeyi canlı tut
-            setTimeout(() => {
-              if (otomatikModRef.current) sesliGirdiyiBaslat();
-            }, 300);
+        recog.onerror = () => {
+          // Tarayıcı STT takılırsa ancak mikrofona ses geldiyse otomatik saha analizi yap
+          if (sesAlgilandiRef.current) {
+            komutIsle('Mevcut telemetri ve hedef durumunu detaylandır.');
+          } else if (canliDiyalogRef.current) {
+            setTimeout(() => dinlemeyiBaslat(), 800);
           } else {
             setDurum('BEKLEMEDE');
           }
         };
 
-        recognitionRef.current = recognition;
-        recognition.start();
+        recognitionRef.current = recog;
+        recog.start();
+      } else {
+        // STT desteklenmiyorsa ses dalgasından 3 saniye sonra tetikle
+        setTimeout(() => {
+          komutIsle('Saha genel durumunu raporla.');
+        }, 3000);
       }
     } catch (err) {
-      console.error('Mikrofon erişim hatası:', err);
+      console.error(err);
       setDurum('BEKLEMEDE');
-      setAltMetin('Mikrofon bağlantısı kurulamadı.');
+      setYanitMetni('Mikrofon erişimi sağlanamadı.');
     }
   };
 
-  const sohbetModunuDegistir = () => {
-    if (otomatikMod) {
-      setOtomatikMod(false);
+  const diyologAnahtari = () => {
+    if (canliDiyalog) {
+      setCanliDiyalog(false);
       setDurum('BEKLEMEDE');
-      setAltMetin('Karşılıklı konuşma durduruldu.');
+      setYanitMetni('Canlı diyalog kapatıldı.');
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       if (recognitionRef.current) recognitionRef.current.abort();
     } else {
-      setOtomatikMod(true);
-      sesliGirdiyiBaslat();
+      setCanliDiyalog(true);
+      dinlemeyiBaslat();
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-      }
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-    };
-  }, []);
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!metinGirisi.trim()) return;
+    komutIsle(metinGirisi);
+    setMetinGirisi('');
+  };
 
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      padding: '16px',
-      color: '#ffffff',
+      padding: '14px',
       gap: '12px',
       width: '100%',
-      maxWidth: '460px',
-      margin: '0 auto'
+      maxWidth: '480px',
+      margin: '0 auto',
+      boxSizing: 'border-box'
     }}>
+      {/* JARVIS Başlık */}
       <div style={{
-        fontSize: '1.4rem',
-        fontWeight: 'bold',
-        letterSpacing: '0.2em',
-        color: '#22d3ee',
-        textTransform: 'uppercase'
+        fontSize: '1.3rem',
+        fontWeight: '900',
+        letterSpacing: '0.25em',
+        color: '#38bdf8',
+        textShadow: '0 0 12px rgba(56, 189, 248, 0.6)'
       }}>
-        KÂŞİF
+        KÂŞİF JARVIS
       </div>
 
-      {/* Durum Göstergesi */}
+      {/* Durum Rozeti */}
       <div style={{
-        fontSize: '0.85rem',
-        padding: '4px 16px',
-        borderRadius: '6px',
-        border: `1px solid ${otomatikMod ? '#22c55e' : 'rgba(6, 182, 212, 0.4)'}`,
-        backgroundColor: otomatikMod ? 'rgba(20, 83, 45, 0.6)' : 'rgba(8, 51, 68, 0.6)',
-        color: otomatikMod ? '#86efac' : '#67e8f9',
+        fontSize: '0.8rem',
+        padding: '4px 14px',
+        borderRadius: '20px',
+        border: `1px solid ${canliDiyalog ? '#22c55e' : '#0284c7'}`,
+        backgroundColor: canliDiyalog ? 'rgba(34, 197, 94, 0.15)' : 'rgba(2, 132, 199, 0.15)',
+        color: canliDiyalog ? '#4ade80' : '#38bdf8',
         fontFamily: 'monospace'
       }}>
-        MOD: {otomatikMod ? 'CANLI KARŞILIKLI DİYALOG' : 'MANUEL'} | DURUM: {durum} {durum === 'DİNLİYOR' && `(%${sesSeviyesi})`}
+        {canliDiyalog ? `CANLI DİYALOG AÇIK (${durum})` : `MOD: MANUEL (${durum})`} {durum === 'DİNLİYOR' && `| SİNYAL: %${sesGucu}`}
       </div>
 
-      {/* Yanıt Kutusu */}
+      {/* Yanıt Paneli */}
       <div style={{
-        minHeight: '65px',
+        minHeight: '70px',
+        width: '100%',
+        padding: '12px 16px',
+        borderRadius: '10px',
+        backgroundColor: 'rgba(15, 23, 42, 0.85)',
+        border: '1px solid rgba(56, 189, 248, 0.3)',
+        color: '#f1f5f9',
+        fontSize: '0.95rem',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         textAlign: 'center',
-        padding: '10px 16px',
-        color: '#cbd5e1',
-        fontSize: '0.92rem',
-        backgroundColor: 'rgba(15, 23, 42, 0.7)',
-        borderRadius: '8px',
-        width: '100%',
-        border: '1px solid rgba(56, 189, 248, 0.2)'
+        boxShadow: 'inset 0 0 15px rgba(0,0,0,0.5)'
       }}>
-        {altMetin}
+        {yanitMetni}
       </div>
 
-      {/* Ana Karşılıklı Konuşma / Canlı Sohbet Butonu */}
+      {/* Ana Mikrofon / Canlı Diyalog Butonu */}
       <button
-        onClick={sohbetModunuDegistir}
+        onClick={diyologAnahtari}
         style={{
-          width: '130px',
-          height: '130px',
+          width: '120px',
+          height: '120px',
           borderRadius: '50%',
-          border: otomatikMod ? '3px solid #22c55e' : '3px solid #06b6d4',
-          backgroundColor: otomatikMod ? 'rgba(20, 83, 45, 0.5)' : 'rgba(8, 51, 68, 0.5)',
-          color: otomatikMod ? '#86efac' : '#22d3ee',
+          border: canliDiyalog ? '3px solid #22c55e' : '3px solid #38bdf8',
+          backgroundColor: canliDiyalog ? 'rgba(34, 197, 94, 0.2)' : 'rgba(14, 165, 233, 0.15)',
+          color: canliDiyalog ? '#4ade80' : '#38bdf8',
           fontWeight: 'bold',
-          letterSpacing: '0.08em',
-          fontSize: '0.88rem',
+          letterSpacing: '0.05em',
+          fontSize: '0.85rem',
           cursor: 'pointer',
-          boxShadow: otomatikMod 
-            ? `0 0 ${25 + sesSeviyesi / 2}px rgba(34, 197, 94, 0.7)` 
-            : '0 0 20px rgba(6, 182, 212, 0.3)',
+          boxShadow: canliDiyalog 
+            ? `0 0 ${20 + sesGucu / 2}px rgba(34, 197, 94, 0.8)` 
+            : '0 0 20px rgba(56, 189, 248, 0.4)',
           transition: 'all 0.2s ease',
-          margin: '6px 0',
-          textAlign: 'center'
+          outline: 'none'
         }}
       >
-        {otomatikMod ? (durum === 'KONUŞUYOR' ? 'KÂŞİF ANLATIYOR' : 'DİNLİYOR...') : 'SOHBETİ BAŞLAT'}
+        {canliDiyalog ? (durum === 'KONUŞUYOR' ? 'KÂŞİF' : 'DİNLİYOR') : 'DİYALOĞU BAŞLAT'}
       </button>
 
-      {/* Manuel Hızlı Analiz Butonları */}
-      <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'center' }}>
+      {/* Hızlı Komut Tetikleyicileri */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', width: '100%' }}>
         <button
-          onClick={() => komutCalistir('Hedef durumunu ve derinliği analiz et.')}
+          onClick={() => komutIsle('Hedef derinliğini ve metal türünü analiz et.')}
           style={{
-            flex: 1,
             padding: '10px',
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            border: '1px solid rgba(6, 182, 212, 0.4)',
-            color: '#38bdf8',
+            backgroundColor: 'rgba(30, 41, 59, 0.8)',
+            border: '1px solid rgba(56, 189, 248, 0.4)',
+            color: '#7dd3fc',
             borderRadius: '6px',
             fontSize: '0.8rem',
-            fontWeight: 'bold',
             cursor: 'pointer'
           }}
         >
-          🔍 Hedef Analizi
+          🎯 Hedef Analizi
         </button>
         <button
-          onClick={() => komutCalistir('Sistem batarya ve GPS durumunu raporla.')}
+          onClick={() => komutIsle('Batarya, GPS ve sinyal durumunu raporla.')}
           style={{
-            flex: 1,
             padding: '10px',
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            border: '1px solid rgba(6, 182, 212, 0.4)',
-            color: '#38bdf8',
+            backgroundColor: 'rgba(30, 41, 59, 0.8)',
+            border: '1px solid rgba(56, 189, 248, 0.4)',
+            color: '#7dd3fc',
             borderRadius: '6px',
             fontSize: '0.8rem',
-            fontWeight: 'bold',
             cursor: 'pointer'
           }}
         >
           ⚡ Sistem Raporu
         </button>
       </div>
+
+      {/* Klavye / Manuel Mesaj Girişi */}
+      <form onSubmit={handleManualSubmit} style={{ display: 'flex', width: '100%', gap: '6px', marginTop: '4px' }}>
+        <input
+          type="text"
+          value={metinGirisi}
+          onChange={(e) => setMetinGirisi(e.target.value)}
+          placeholder="Komut yazın veya sorun..."
+          style={{
+            flex: 1,
+            padding: '8px 12px',
+            borderRadius: '6px',
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            color: '#fff',
+            fontSize: '0.85rem',
+            outline: 'none'
+          }}
+        />
+        <button
+          type="submit"
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#0284c7',
+            border: 'none',
+            borderRadius: '6px',
+            color: '#fff',
+            fontWeight: 'bold',
+            fontSize: '0.85rem',
+            cursor: 'pointer'
+          }}
+        >
+          Gönder
+        </button>
+      </form>
     </div>
   );
 };
