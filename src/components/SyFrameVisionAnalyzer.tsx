@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
 
+export interface YuklenenMedya {
+  id: string;
+  url: string;
+  tur: 'IMAGE' | 'VIDEO';
+  ad: string;
+}
+
 export interface AnomaliTespit {
   id: string;
   ad: string;
@@ -85,24 +92,42 @@ const ORNEK_KARTLAR: AnomaliTespit[] = [
 ];
 
 export const SyFrameVisionAnalyzer: React.FC = () => {
-  const [medyaUrl, setMedyaUrl] = useState<string | null>(null);
-  const [medyaTuru, setMedyaTuru] = useState<'IMAGE' | 'VIDEO'>('IMAGE');
+  const [medyaListesi, setMedyaListesi] = useState<YuklenenMedya[]>([]);
+  const [aktifMedyaIndex, setAktifMedyaIndex] = useState<number>(0);
   const [tespitler] = useState<AnomaliTespit[]>(ORNEK_KARTLAR);
   const [seciliTespit, setSeciliTespit] = useState<AnomaliTespit>(ORNEK_KARTLAR[0]);
   const [linkInput, setLinkInput] = useState('');
 
+  // ÇOKLU DOSYA (FOTOĞRAF / VİDEO) YÜKLEME
   const handleMedyaYukle = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0]) return;
-    const file = e.target.files[0];
-    setMedyaTuru(file.type.startsWith('video') ? 'VIDEO' : 'IMAGE');
-    setMedyaUrl(URL.createObjectURL(file));
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const yeniDosyalar: YuklenenMedya[] = Array.from(e.target.files).map((file, i) => ({
+      id: `MED-${Date.now()}-${i}`,
+      url: URL.createObjectURL(file),
+      tur: file.type.startsWith('video') ? 'VIDEO' : 'IMAGE',
+      ad: file.name
+    }));
+
+    setMedyaListesi((onceki) => [...onceki, ...yeniDosyalar]);
+    setAktifMedyaIndex(medyaListesi.length); // Yeni yüklenen ilk öğeye odaklan
   };
 
+  // LİNK EKLEME
   const handleLinkYukle = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!linkInput) return;
-    setMedyaUrl(linkInput);
-    setMedyaTuru(linkInput.includes('mp4') || linkInput.includes('youtube') ? 'VIDEO' : 'IMAGE');
+    if (!linkInput.trim()) return;
+
+    const yeniMedya: YuklenenMedya = {
+      id: `LINK-${Date.now()}`,
+      url: linkInput.trim(),
+      tur: linkInput.includes('mp4') || linkInput.includes('youtube') ? 'VIDEO' : 'IMAGE',
+      ad: 'Web/Akış Bağlantısı'
+    };
+
+    setMedyaListesi((onceki) => [...onceki, yeniMedya]);
+    setAktifMedyaIndex(medyaListesi.length);
+    setLinkInput('');
   };
 
   const kartSec = (item: AnomaliTespit) => {
@@ -115,6 +140,8 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
     }
   };
 
+  const aktifMedya = medyaListesi[aktifMedyaIndex] || null;
+
   return (
     <div style={{
       backgroundColor: '#050914',
@@ -125,7 +152,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
       boxShadow: '0 0 35px rgba(2, 132, 199, 0.2)',
       marginBottom: '20px'
     }}>
-      {/* ÜST BAŞLIK & YÜKLEME ALANI */}
+      {/* ÜST BAŞLIK & ÇOKLU YÜKLEME BUTONU */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '10px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -133,30 +160,44 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
               SyFrame™
             </span>
             <span style={{ fontSize: '0.75rem', color: '#94a3b8', borderLeft: '1px solid #334155', paddingLeft: '8px' }}>
-              EDS ANOMALİ İŞARETLEME VE DİJİTAL İKİZ KADRAJI
+              ÇOKLU MEDYA (FOTO/VİDEO) EDS ANOMALİ İŞARETLEME VE DİJİTAL İKİZ
             </span>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {medyaListesi.length > 0 && (
+            <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: 'bold' }}>
+              {medyaListesi.length} Medya Yüklendi
+            </span>
+          )}
           <label style={{
-            padding: '6px 14px',
+            padding: '7px 14px',
             backgroundColor: '#0284c7',
             border: '1px solid #38bdf8',
             borderRadius: '6px',
             cursor: 'pointer',
             fontSize: '0.78rem',
             fontWeight: 'bold',
-            color: '#fff'
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
           }}>
-            📷 Fotoğraf / Video Seç
-            <input type="file" accept="image/*,video/*" onChange={handleMedyaYukle} style={{ display: 'none' }} />
+            📁 Çoklu Fotoğraf / Video Seç
+            <input
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              onChange={handleMedyaYukle}
+              style={{ display: 'none' }}
+            />
           </label>
         </div>
       </div>
 
       {/* LİNK GİRİŞ ÇUBUĞU */}
-      <form onSubmit={handleLinkYukle} style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+      <form onSubmit={handleLinkYukle} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
         <input
           type="text"
           value={linkInput}
@@ -174,9 +215,63 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
           }}
         />
         <button type="submit" style={{ padding: '8px 16px', backgroundColor: '#f59e0b', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', color: '#000', fontSize: '0.8rem' }}>
-          Taramayı Başlat
+          Link Ekle
         </button>
       </form>
+
+      {/* YÜKLENEN ÇOKLU MEDYA GALERİ ŞERİDİ (Varsa Görünür) */}
+      {medyaListesi.length > 0 && (
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          overflowX: 'auto',
+          paddingBottom: '10px',
+          marginBottom: '12px',
+          borderBottom: '1px solid rgba(255,255,255,0.06)'
+        }}>
+          {medyaListesi.map((medya, idx) => (
+            <div
+              key={medya.id}
+              onClick={() => setAktifMedyaIndex(idx)}
+              style={{
+                position: 'relative',
+                width: '80px',
+                height: '55px',
+                flexShrink: 0,
+                borderRadius: '6px',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                border: `2px solid ${aktifMedyaIndex === idx ? '#38bdf8' : 'rgba(255,255,255,0.2)'}`,
+                boxShadow: aktifMedyaIndex === idx ? '0 0 10px #38bdf8' : 'none',
+                backgroundColor: '#000'
+              }}
+            >
+              {medya.tur === 'IMAGE' ? (
+                <img src={medya.url} alt={medya.ad} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: '1.2rem', color: '#f59e0b' }}>
+                  🎥
+                </div>
+              )}
+              <span style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                fontSize: '0.55rem',
+                textAlign: 'center',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                padding: '1px'
+              }}>
+                #{idx + 1}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ORTA BÖLÜM: SOL EKRAN (GÖRSEL/EDS) + SAĞ EKRAN (KÜNYE/TALİMAT) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1.2fr', gap: '16px', marginBottom: '16px' }}>
@@ -192,17 +287,17 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
           justifyContent: 'center',
           border: '1px solid rgba(56, 189, 248, 0.2)'
         }}>
-          {medyaUrl ? (
-            medyaTuru === 'IMAGE' ? (
-              <img src={medyaUrl} alt="Saha Görseli" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          {aktifMedya ? (
+            aktifMedya.tur === 'IMAGE' ? (
+              <img src={aktifMedya.url} alt="Saha Görseli" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             ) : (
-              <video src={medyaUrl} controls autoPlay loop style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <video src={aktifMedya.url} controls autoPlay loop style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             )
           ) : (
             <div style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>
               <div style={{ fontSize: '3rem', marginBottom: '8px' }}>🎯</div>
               <div style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: 'bold' }}>Canlı Saha Kadrajı Bekleniyor</div>
-              <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Yukarıdan görsel yükleyin veya link girin. Simülasyon hedefi kadrajda işaretlidir.</div>
+              <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Çoklu fotoğraf/video seçin veya link girin. Hedef odaklama devrededir.</div>
             </div>
           )}
 
@@ -266,7 +361,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
               )}
             </div>
 
-            {/* Taktik Donanım Talimatı (Drone, Yılan Kamera vb.) */}
+            {/* Taktik Donanım Talimatı */}
             <div style={{
               marginTop: '12px',
               padding: '10px',
@@ -287,7 +382,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
         </div>
       </div>
 
-      {/* ALT ŞERİT: ANOMALİ KARTLARI (Tıklandığında hedefe odaklanır) */}
+      {/* ALT ŞERİT: ANOMALİ KARTLARI */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
         {tespitler.map((item) => (
           <div
