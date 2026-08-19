@@ -38,8 +38,8 @@ const SEHIR_KOORDINATLARI: Record<string, { lat: number; lng: number; zoom: numb
   'Antalya': { lat: 36.8841, lng: 30.7056, zoom: 13, litoloji: 'Karstik Kireçtaşı', antik: 'Termessos Antik Lahitleri & Kaya Mezarları' }
 };
 
-const VARSAYILAN_AJANLAR: Ajan[] = [
-  { id: 'AG-01', ad: 'ASTRO-ARKEO DEDEKTÖRÜ', rol: 'Göbeklitepe / Harran Astronomik Hizalama', kayitSayisi: 14280, guven: 98.4 },
+const BASLANGIC_AJANLARI: Ajan[] = [
+  { id: 'AG-01', ad: 'ASTRO-ARKEO DEDEKTÖRÜ', rol: 'Göbeklitepe Ekinoks & Hizalama', kayitSayisi: 14280, guven: 98.4 },
   { id: 'AG-02', ad: 'JEOLOJİ & MTA DEDEKTÖRÜ', rol: 'Litoloji, Karstik Boşluk & Fay Analizi', kayitSayisi: 28940, guven: 97.1, ogrenmeTalebi: { konu: '2026 Doğu Anadolu Yeni Litoloji Katmanı', kaynak: 'MTA Açık Veri Portalı', tarih: 'Bugün' } },
   { id: 'AG-03', ad: 'NÜMİZMATİK & MÜZE ARŞİVİ', rol: 'Sikke, Lahit & Tipoloji Eşleştirme', kayitSayisi: 54100, guven: 99.2 },
   { id: 'AG-04', ad: 'OSINT & DEFİNE KOLEKTİF', rol: 'Saha Forumları & Video Çapraz Tarama', kayitSayisi: 89320, guven: 92.8, ogrenmeTalebi: { konu: 'Harput Yeraltı Galerileri Yeni Çizim Modeli', kaynak: 'Akademik Bildiri', tarih: '1 saat önce' } },
@@ -63,7 +63,7 @@ export const SyMasterCore: React.FC = () => {
   const [onayBekleyenAjan, setOnayBekleyenAjan] = useState<Ajan | null>(null);
 
   const [seciliIl, setSeciliIl] = useState('Elazığ');
-  const [haritaTipi, setHaritaTipi] = useState<'2D' | '3D' | 'UYDU'>('UYDU');
+  const [haritaTipi, setHaritaTipi] = useState<'GUNUMUZ' | '3D_TOPO' | 'UYDU'>('UYDU');
   const [havaDurumu, setHavaDurumu] = useState<'ACIK' | 'YAGMUR' | 'SIS' | 'KAR'>('ACIK');
   const [zamanCag, setZamanCag] = useState('Hitit / Urartu (M.Ö. 1200)');
 
@@ -74,10 +74,10 @@ export const SyMasterCore: React.FC = () => {
   const [aktifAsama, setAktifAsama] = useState(6);
   const [spektralMod, setSpektralMod] = useState<'NORMAL' | 'LAB_KIRMIZI' | 'YDS_ALTIN' | 'YAZIT_AC' | 'ELA_MONTAJ'>('NORMAL');
   const [zoom, setZoom] = useState(1);
-  const [ajanlar, setAjanlar] = useState<Ajan[]>(VARSAYILAN_AJANLAR);
+  const [ajanlar, setAjanlar] = useState<Ajan[]>(BASLANGIC_AJANLARI);
 
   const [dinliyorMu, setDinliyorMu] = useState(false);
-  const [asistanCevabi, setAsistanCevabi] = useState('Saha sensörleri ve analiz motoru hazır. Dinlemedeyim.');
+  const [asistanCevabi, setAsistanCevabi] = useState('Saha sensörleri ve analiz motoru hazır.');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -91,12 +91,21 @@ export const SyMasterCore: React.FC = () => {
     { id: '3', baslik: 'YENİ ÖĞRENME TALEBİ', detay: 'MTA Dedektörü onayınızı bekliyor.', tur: 'AJAN', zaman: '5 dk önce' }
   ]);
 
+  const bildirimSil = (id: string) => {
+    setBildirimler(prev => prev.filter(b => b.id !== id));
+  };
+
+  const bildirimTemizle = () => {
+    setBildirimler([]);
+  };
+
   const konus = (metin: string) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(metin);
       utter.lang = 'tr-TR';
       utter.rate = 1.0;
+      utter.pitch = 1.0;
       window.speechSynthesis.speak(utter);
     }
   };
@@ -104,7 +113,7 @@ export const SyMasterCore: React.FC = () => {
   const sesliKomutDinle = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert('Tarayıcınız ses tanımayı desteklemiyor.');
+      konus('Tarayıcınız ses tanımayı desteklemiyor.');
       return;
     }
     const recognition = new SpeechRecognition();
@@ -116,16 +125,22 @@ export const SyMasterCore: React.FC = () => {
       const komut = e.results[0][0].transcript.toLowerCase();
       setDinliyorMu(false);
       
-      if (komut.includes('analiz') || komut.includes('tara')) {
-        setAsistanCevabi('Saha analizi başlatıldı. 128 derece tahliye kanalı ve hedef vektörü hesaplanıyor.');
-        konus('Saha analizi başlatıldı. 128 derece tahliye kanalı ve hedef vektörü hesaplanıyor.');
-      } else if (komut.includes('harita') || komut.includes('uydu')) {
+      if (komut.includes('analiz') || komut.includes('tara') || komut.includes('hedef')) {
+        const cevap = 'Analiz tamamlandı. 128 derece açıda 5.4 metre mesafede anomali odak noktası belirlendi.';
+        setAsistanCevabi(cevap);
+        konus(cevap);
+      } else if (komut.includes('uydu')) {
         setHaritaTipi('UYDU');
-        setAsistanCevabi('Harita çok bantlı uydu moduna geçirildi.');
-        konus('Harita çok bantlı uydu moduna geçirildi.');
+        setAsistanCevabi('Çok bantlı uydu görüntüsü aktif edildi.');
+        konus('Çok bantlı uydu görüntüsü aktif edildi.');
+      } else if (komut.includes('günümüz') || komut.includes('sokak')) {
+        setHaritaTipi('GUNUMUZ');
+        setAsistanCevabi('Günümüz vektörel harita katmanı açıldı.');
+        konus('Günümüz harita katmanı açıldı.');
       } else {
-        setAsistanCevabi(`Komut anlaşıldı: "${komut}". Veriler işleniyor.`);
-        konus(`Komut anlaşıldı. Veriler işleniyor.`);
+        const cevap = `Komutunuz işlendi: ${komut}.`;
+        setAsistanCevabi(cevap);
+        konus(cevap);
       }
     };
 
@@ -136,8 +151,8 @@ export const SyMasterCore: React.FC = () => {
     if (!mapContainerRef.current) return;
 
     const servisler = {
-      '2D': 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      '3D': 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'GUNUMUZ': 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      '3D_TOPO': 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
       'UYDU': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
     };
 
@@ -145,12 +160,12 @@ export const SyMasterCore: React.FC = () => {
 
     if (!mapRef.current) {
       const map = L.map(mapContainerRef.current).setView([hedef.lat, hedef.lng], 13);
-      const tile = L.tileLayer(servisler[haritaTipi]).addTo(map);
+      const tile = L.tileLayer(servisler[haritaTipi], { attribution: 'SyKaşif GIS Engine' }).addTo(map);
       tileRef.current = tile;
       mapRef.current = map;
     } else {
       if (tileRef.current) tileRef.current.setUrl(servisler[haritaTipi]);
-      mapRef.current.flyTo([hedef.lat, hedef.lng], 13, { duration: 1.2 });
+      mapRef.current.flyTo([hedef.lat, hedef.lng], 13, { duration: 1.0 });
     }
   }, [seciliIl, haritaTipi]);
 
@@ -177,6 +192,8 @@ export const SyMasterCore: React.FC = () => {
       { id: `${Date.now()}`, baslik: 'YENİ MEDYA YÜKLENDİ', detay: `${yeniDosyalar.length} adet dosya analiz havuzuna eklendi.`, tur: 'BASARILI', zaman: 'Şimdi' },
       ...prev
     ]);
+
+    konus(`${yeniDosyalar.length} adet medya yüklendi. Analiz başlatılıyor.`);
   };
 
   const handleLinkEkle = (e: React.FormEvent) => {
@@ -191,6 +208,53 @@ export const SyMasterCore: React.FC = () => {
     setMedyaListesi(prev => [...prev, yeniLink]);
     setLinkGirdisi('');
     setSeciliMedyaIndex(medyaListesi.length);
+
+    setBildirimler(prev => [
+      { id: `${Date.now()}`, baslik: 'LİNK AKIŞI EKLENDİ', detay: yeniLink.ad, tur: 'BASARILI', zaman: 'Şimdi' },
+      ...prev
+    ]);
+
+    konus('Bağlantı akışı başarıyla eklendi.');
+  };
+
+  const medyaSil = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const yeniListe = medyaListesi.filter(m => m.id !== id);
+    setMedyaListesi(yeniListe);
+    if (seciliMedyaIndex >= yeniListe.length) {
+      setSeciliMedyaIndex(Math.max(0, yeniListe.length - 1));
+    }
+    konus('Medya listeden silindi.');
+  };
+
+  const yeniAjanEkle = () => {
+    const uzmanliklar = [
+      { ad: 'SPEKTROMETRE & METALURJİ DEDEKTÖRÜ', rol: 'Altın/Bakır XRF Spektral Ayrışımı' },
+      { ad: '3D FOTOGRAMETRİ & DİJİTAL İKİZ AJANI', rol: 'Mesh / Yüzey Pürüzlülük Hesaplama' },
+      { ad: 'RADAR & LİDAR SAHA İSTİHBARATI', rol: 'Ducted-Fan İHA Telemetri Analizi' },
+      { ad: 'HİDROJEOLOJİ & YERALTI SU AJANI', rol: 'Karstik Akifer & Nem Anomalisi' }
+    ];
+    const yeniUzmanlik = uzmanliklar[Math.floor(Math.random() * uzmanliklar.length)];
+    const yeniAjan: Ajan = {
+      id: `AG-0${ajanlar.length + 1}`,
+      ad: yeniUzmanlik.ad,
+      rol: yeniUzmanlik.rol,
+      kayitSayisi: 1200,
+      guven: 98.0,
+      ogrenmeTalebi: {
+        konu: 'Yeni Saha Veri Seti & Öğrenme Modeli',
+        kaynak: 'Saha Sensör Ağı',
+        tarih: 'Şimdi'
+      }
+    };
+    setAjanlar(prev => [...prev, yeniAjan]);
+
+    setBildirimler(prev => [
+      { id: `${Date.now()}`, baslik: 'YENİ AJAN EKLENDİ', detay: yeniAjan.ad, tur: 'AJAN', zaman: 'Şimdi' },
+      ...prev
+    ]);
+
+    konus(`Yeni uzman ajan sürüye katıldı: ${yeniAjan.ad}. Onay bekliyor.`);
   };
 
   const seciliMedya = medyaListesi[seciliMedyaIndex] || null;
@@ -240,6 +304,24 @@ export const SyMasterCore: React.FC = () => {
 
       const w = canvas.width, h = canvas.height;
       const bx = w * 0.2, by = h * 0.18, bw = w * 0.6, bh = h * 0.64;
+
+      if (aktifAsama >= 3) {
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+        ctx.lineWidth = 1;
+        for (let x = bx + 20; x <= bx + bw - 20; x += 30) {
+          ctx.beginPath();
+          ctx.moveTo(x, by + 15);
+          ctx.lineTo(x, by + bh - 15);
+          ctx.stroke();
+        }
+        for (let y = by + 20; y <= by + bh - 20; y += 30) {
+          ctx.beginPath();
+          ctx.moveTo(bx + 15, y);
+          ctx.lineTo(bx + bw - 15, y);
+          ctx.stroke();
+        }
+      }
+
       ctx.strokeStyle = '#38bdf8';
       ctx.lineWidth = 2;
       ctx.strokeRect(bx, by, bw, bh);
@@ -252,10 +334,19 @@ export const SyMasterCore: React.FC = () => {
       ctx.fillRect(bx + bw - kb + 2, by + bh - kk + 2, kb, kk); ctx.fillRect(bx + bw - 2, by + bh - kb + 2, kk, kb);
 
       if (aktifAsama >= 6) {
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(bx + bw * 0.42, by + bh * 0.4, 20, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(bx + bw * 0.6, by + bh * 0.42, 24, 0, Math.PI * 2);
+        ctx.stroke();
+
         ctx.strokeStyle = '#f59e0b';
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(bx + bw * 0.45, by + bh * 0.4);
+        ctx.moveTo(bx + bw * 0.42, by + bh * 0.4);
         ctx.lineTo(bx + bw * 0.3, by + bh * 0.78);
         ctx.stroke();
 
@@ -266,6 +357,10 @@ export const SyMasterCore: React.FC = () => {
         ctx.lineTo(bx + bw * 0.12, by + bh * 0.95);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        ctx.beginPath();
+        ctx.arc(bx + bw * 0.12, by + bh * 0.95, 18, 0, Math.PI * 2);
+        ctx.stroke();
       }
     };
   }, [seciliMedya, spektralMod, aktifAsama]);
@@ -302,21 +397,21 @@ export const SyMasterCore: React.FC = () => {
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <button
             onClick={sesliKomutDinle}
-            style={{ padding: '5px 12px', backgroundColor: dinliyorMu ? '#dc2626' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontWeight: 'bold', fontSize: '0.72rem', cursor: 'pointer' }}
+            style={{ padding: '6px 12px', backgroundColor: dinliyorMu ? '#dc2626' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontWeight: 'bold', fontSize: '0.72rem', cursor: 'pointer' }}
           >
             {dinliyorMu ? '🎙️ Dinliyor...' : '🎤 Sesli Konuş'}
           </button>
 
           <button
             onClick={() => setBildirimPaneliAcik(!bildirimPaneliAcik)}
-            style={{ padding: '5px 12px', backgroundColor: bildirimPaneliAcik ? '#0284c7' : '#0f172a', border: '1px solid #38bdf8', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '0.72rem' }}
+            style={{ padding: '6px 12px', backgroundColor: bildirimPaneliAcik ? '#0284c7' : '#0f172a', border: '1px solid #38bdf8', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '0.72rem' }}
           >
             🔔 Bildirimler ({bildirimler.length})
           </button>
 
           <button
             onClick={toggleTamEkran}
-            style={{ padding: '5px 12px', backgroundColor: tamEkran ? '#dc2626' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.72rem' }}
+            style={{ padding: '6px 12px', backgroundColor: tamEkran ? '#dc2626' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.72rem' }}
           >
             {tamEkran ? '🗗 Küçült' : '⛶ Tam Ekran'}
           </button>
@@ -324,16 +419,35 @@ export const SyMasterCore: React.FC = () => {
       </header>
 
       {bildirimPaneliAcik && (
-        <div style={{ backgroundColor: 'rgba(7, 14, 28, 0.98)', border: '1px solid #38bdf8', borderRadius: '8px', padding: '12px', marginBottom: '8px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px', fontSize: '0.72rem' }}>
-          {bildirimler.map(b => (
-            <div key={b.id} style={{ backgroundColor: '#030712', padding: '8px', borderRadius: '6px', border: `1px solid ${b.tur === 'BASARILI' ? '#22c55e' : b.tur === 'UYARI' ? '#f59e0b' : '#38bdf8'}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: 'bold', color: b.tur === 'BASARILI' ? '#4ade80' : '#f59e0b' }}>{b.baslik}</span>
-                <span style={{ color: '#64748b', fontSize: '0.62rem' }}>{b.zaman}</span>
+        <div style={{ backgroundColor: 'rgba(7, 14, 28, 0.98)', border: '1px solid #38bdf8', borderRadius: '8px', padding: '12px', marginBottom: '8px', fontSize: '0.72rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid #1e293b', paddingBottom: '4px' }}>
+            <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>CANLI BİLDİRİM AKIŞI ({bildirimler.length})</span>
+            {bildirimler.length > 0 && (
+              <button
+                onClick={bildirimTemizle}
+                style={{ backgroundColor: '#334155', border: 'none', borderRadius: '3px', color: '#cbd5e1', padding: '2px 8px', fontSize: '0.65rem', cursor: 'pointer' }}
+              >
+                Tümünü Temizle
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px' }}>
+            {bildirimler.map(b => (
+              <div key={b.id} style={{ backgroundColor: '#030712', padding: '8px', borderRadius: '6px', border: `1px solid ${b.tur === 'BASARILI' ? '#22c55e' : b.tur === 'UYARI' ? '#f59e0b' : '#38bdf8'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 'bold', color: b.tur === 'BASARILI' ? '#4ade80' : '#f59e0b' }}>{b.baslik}</span>
+                  <button
+                    onClick={() => bildirimSil(b.id)}
+                    style={{ backgroundColor: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.7rem' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div style={{ color: '#cbd5e1', marginTop: '2px' }}>{b.detay}</div>
+                <div style={{ color: '#64748b', fontSize: '0.6rem', marginTop: '4px' }}>{b.zaman}</div>
               </div>
-              <div style={{ color: '#cbd5e1', marginTop: '2px' }}>{b.detay}</div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
@@ -343,7 +457,7 @@ export const SyMasterCore: React.FC = () => {
             type="text"
             value={linkGirdisi}
             onChange={(e) => setLinkGirdisi(e.target.value)}
-            placeholder="Web sayfası, define forumu, YouTube veya RTSP kamera linki yapıştırın..."
+            placeholder="Web sayfası, YouTube veya RTSP kamera linki yapıştırın..."
             style={{ flex: 1, backgroundColor: '#020617', border: '1px solid #334155', borderRadius: '4px', color: '#38bdf8', padding: '4px 8px', fontSize: '0.72rem', outline: 'none' }}
           />
           <button type="submit" style={{ backgroundColor: '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontSize: '0.7rem', padding: '4px 10px', fontWeight: 'bold', cursor: 'pointer' }}>
@@ -360,11 +474,14 @@ export const SyMasterCore: React.FC = () => {
       {medyaListesi.length > 0 && (
         <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '8px', paddingBottom: '4px' }}>
           {medyaListesi.map((m, idx) => (
-            <button
+            <div
               key={m.id}
               onClick={() => setSeciliMedyaIndex(idx)}
               style={{
-                padding: '4px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 8px',
                 backgroundColor: seciliMedyaIndex === idx ? '#0284c7' : '#081120',
                 border: `1px solid ${seciliMedyaIndex === idx ? '#38bdf8' : '#334155'}`,
                 borderRadius: '4px',
@@ -374,8 +491,15 @@ export const SyMasterCore: React.FC = () => {
                 whiteSpace: 'nowrap'
               }}
             >
-              #{idx + 1} {m.ad} ({m.tur})
-            </button>
+              <span>#{idx + 1} {m.ad}</span>
+              <button
+                onClick={(e) => medyaSil(m.id, e)}
+                style={{ backgroundColor: '#dc2626', border: 'none', borderRadius: '2px', color: '#fff', padding: '1px 4px', fontSize: '0.6rem', cursor: 'pointer', fontWeight: 'bold' }}
+                title="Bu medyayı sil"
+              >
+                ✕
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -405,13 +529,17 @@ export const SyMasterCore: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', gap: '2px' }}>
-              {(['2D', '3D', 'UYDU'] as const).map(t => (
+              {[
+                { id: 'GUNUMUZ', ad: '🏙️ Günümüz' },
+                { id: '3D_TOPO', ad: '🏔️ 3D Topo' },
+                { id: 'UYDU', ad: '🛰️ Uydu' }
+              ].map(t => (
                 <button
-                  key={t}
-                  onClick={() => setHaritaTipi(t)}
-                  style={{ padding: '2px 8px', fontSize: '0.65rem', backgroundColor: haritaTipi === t ? '#0284c7' : '#020617', border: '1px solid #334155', color: '#fff', borderRadius: '3px', cursor: 'pointer' }}
+                  key={t.id}
+                  onClick={() => setHaritaTipi(t.id as any)}
+                  style={{ padding: '2px 8px', fontSize: '0.65rem', backgroundColor: haritaTipi === t.id ? '#0284c7' : '#020617', border: '1px solid #334155', color: '#fff', borderRadius: '3px', cursor: 'pointer', fontWeight: 'bold' }}
                 >
-                  {t}
+                  {t.ad}
                 </button>
               ))}
             </div>
@@ -439,7 +567,6 @@ export const SyMasterCore: React.FC = () => {
         </div>
 
         <div style={{ backgroundColor: '#070e1c', border: '1px solid #1e293b', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', height: '510px' }}>
-          {/* DTSE 7 AŞAMALI BUTON ŞERİDİ */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '6px' }}>
             {DTSE_ASAMALARI.map(as => (
               <button
@@ -492,7 +619,7 @@ export const SyMasterCore: React.FC = () => {
             ) : (
               <div style={{ textAlign: 'center', color: '#64748b' }}>
                 <div style={{ fontSize: '2.5rem' }}>📷</div>
-                <div>Medya veya Link yükleyin; EDS altın kadrajı ve DStretch burada işlenecektir.</div>
+                <div>Medya yükleyin; 3D Mesh, EDS altın kadrajı ve anomali tespiti çizilecektir.</div>
               </div>
             )}
 
@@ -506,12 +633,18 @@ export const SyMasterCore: React.FC = () => {
 
       <div style={{ backgroundColor: '#070e1c', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '6px', marginBottom: '8px' }}>
-          <span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '0.8rem' }}>
-            🛰️ CANLI AJAN SÜRÜSÜ & KENDİNİ GÜNCELLEYEN AĞ
-          </span>
-          <span style={{ color: '#94a3b8', fontSize: '0.68rem' }}>
-            Ajanlar internetten yeni bilgi bulduğunda operatör onayı almadan sisteme yazmaz.
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '0.8rem' }}>
+              🛰️ CANLI AJAN SÜRÜSÜ ({ajanlar.length} UZMAN AJAN ÇALIŞIYOR)
+            </span>
+          </div>
+
+          <button
+            onClick={yeniAjanEkle}
+            style={{ padding: '4px 10px', backgroundColor: '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontSize: '0.68rem', fontWeight: 'bold', cursor: 'pointer' }}
+          >
+            + Yeni Uzman Ajan Çoğalt
+          </button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
@@ -564,8 +697,9 @@ export const SyMasterCore: React.FC = () => {
                 onClick={() => {
                   setAjanlar(prev => prev.map(a => a.id === onayBekleyenAjan.id ? { ...a, ogrenmeTalebi: undefined, kayitSayisi: a.kayitSayisi + 500, guven: 99.8 } : a));
                   setAjanModalAcik(false);
-                  setAsistanCevabi(`${onayBekleyenAjan.ad} yeni öğrenme paketini hafızasına başarıyla entegre etti.`);
-                  konus(`${onayBekleyenAjan.ad} başarıyla güncellendi.`);
+                  const onayMetni = `${onayBekleyenAjan.ad} yeni öğrenme paketini hafızasına başarıyla entegre etti.`;
+                  setAsistanCevabi(onayMetni);
+                  konus(onayMetni);
                 }}
                 style={{ padding: '6px 14px', backgroundColor: '#22c55e', border: 'none', borderRadius: '4px', color: '#000', fontWeight: 'bold', fontSize: '0.72rem', cursor: 'pointer' }}
               >
@@ -576,7 +710,6 @@ export const SyMasterCore: React.FC = () => {
         </div>
       )}
 
-      {/* ADLİ BİLİŞİM DOĞRULAMA KARTI */}
       <SyMediaVerificationCore medyaUrl={seciliMedya?.url} />
     </div>
   );
