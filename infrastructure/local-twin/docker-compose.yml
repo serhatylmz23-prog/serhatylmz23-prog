@@ -1,0 +1,25 @@
+services:
+  nodeodm:
+    image: opendronemap/nodeodm:latest
+    container_name: sykasif-nodeodm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    command:
+      - --max_concurrency
+      - "1"
+    cpus: 3.0
+    mem_limit: 9g
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 9G
+        reservations:
+          memory: 4G
+    volumes:
+      - nodeodm-data:/var/www/data
+
+volumes:
+  nodeodm-data:
+    name: sykasif-nodeodm-data

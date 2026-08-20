@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { SyMasterCore } from './SyMasterCore';
 import { SyWorldMonitorCore } from './SyWorldMonitorCore';
-import { SyDTSECore } from './SyDTSECore';
+import { SyDigitalTwinRuntime } from './SyDigitalTwinRuntime';
 import { SyFrameVisionAnalyzer } from './SyFrameVisionAnalyzer';
 import { SyHeritageGlobalCore } from './SyHeritageGlobalCore';
 import { SyAgentSwarmDashboard } from './SyAgentSwarmDashboard';
 import { SyMediaUpload } from './SyMediaUpload';
 import { SyEcosystemDashboard } from '../data/SyEcosystemDashboard';
-import { KasifAssistant } from '../kasif_asistan';
 
 type SekmeId =
   | 'KONSOL'
@@ -41,7 +40,7 @@ const SEKMELER: { id: SekmeId; ad: string; ikon: string }[] = [
  * yerden import edilmiyordu; SyAppShell'e eklenen mod anahtarıyla tekrar
  * erişilebilir hale getirildi.
  */
-export const SyClassicConsole: React.FC = () => {
+const SyClassicConsole: React.FC = () => {
   const [aktifSekme, setAktifSekme] = useState<SekmeId>('KONSOL');
 
   return (
@@ -80,14 +79,28 @@ export const SyClassicConsole: React.FC = () => {
         ))}
       </nav>
 
-      <div style={{ padding: '10px 10px 0 10px' }}>
-        <KasifAssistant />
+      <div
+        role="status"
+        style={{
+          margin: '10px 10px 0',
+          padding: '9px 12px',
+          borderRadius: '7px',
+          border: '1px solid rgba(245,158,11,0.55)',
+          backgroundColor: 'rgba(245,158,11,0.1)',
+          color: '#fde68a',
+          fontSize: '0.75rem',
+          lineHeight: 1.5,
+        }}
+      >
+        <strong>KAPSAM UYARISI:</strong> Ana Konsol ve eski görsel panellerdeki
+        sabit sensör değerleri demo verisidir. “DTSE Tarama”, Harita modundaki
+        Canlı Ekosistem ve KÂŞİF bağlantıları gerçek servis durumunu gösterir.
       </div>
 
-      <div style={{ padding: '0 10px 10px 10px' }}>
+      <div style={{ padding: '10px' }}>
         {aktifSekme === 'KONSOL' && <SyMasterCore />}
         {aktifSekme === 'DUNYA' && <SyWorldMonitorCore />}
-        {aktifSekme === 'DTSE' && <SyDTSECore />}
+        {aktifSekme === 'DTSE' && <SyDigitalTwinRuntime />}
         {aktifSekme === 'GORUNTU' && <SyFrameVisionAnalyzer />}
         {aktifSekme === 'MIRAS' && <SyHeritageGlobalCore />}
         {aktifSekme === 'AJANLAR' && <SyAgentSwarmDashboard />}
@@ -97,3 +110,5 @@ export const SyClassicConsole: React.FC = () => {
     </div>
   );
 };
+
+export default SyClassicConsole;

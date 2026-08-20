@@ -1,67 +1,102 @@
 import type {
-  SyAgent,
   AgentContext,
+  AgentFinding,
   AgentResult,
+  SyAgent,
 } from '../agentTypes';
-
+import { fetchJson } from '../../services/httpService';
 import {
-  searchSources,
-} from '../../services/sourceService';
+  canRunForLocation,
+  failedResult,
+  source,
+} from './agentHelpers';
+
+interface MacrostratUnit {
+  map_id?: number;
+  name?: string;
+  strat_name?: string;
+  lith?: string;
+  descrip?: string;
+  best_int_name?: string;
+  t_age?: number;
+  b_age?: number;
+}
+
+interface MacrostratResponse {
+  success?: {
+    data?: MacrostratUnit[];
+  };
+}
 
 export const geologyAgent: SyAgent = {
   id: 'jeoloji',
-
   name: 'Jeoloji Ajanı',
-
   description:
-    'Seçilen bölgenin jeolojik ve jeomorfolojik verilerini araştırır.',
+    'Seçilen nokta için Macrostrat açık jeoloji haritasındaki birimleri getirir.',
+  canRun: canRunForLocation,
 
-  canRun: (
-    context: AgentContext
-  ) => {
-    return (
-      context.latitude >= -90 &&
-      context.latitude <= 90 &&
-      context.longitude >= -180 &&
-      context.longitude <= 180
-    );
-  },
-
-  async run(
-    context: AgentContext
-  ): Promise<AgentResult> {
-    const startedAt =
-      new Date().toISOString();
+  async run(context: AgentContext): Promise<AgentResult> {
+    const startedAt = new Date().toISOString();
+    const params = new URLSearchParams({
+      lat: context.latitude.toString(),
+      lng: context.longitude.toString(),
+    });
+    const url = `https://macrostrat.org/api/v2/geologic_units/map?${params}`;
 
     try {
-      const sources =
-        await searchSources(
-          `jeoloji ${context.latitude} ${context.longitude}`
-        );
+      const data = await fetchJson<MacrostratResponse>(url);
+      const geologySource = source(
+        `macrostrat-${context.latitude}-${context.longitude}`,
+        'Macrostrat geologic units map',
+        'Macrostrat',
+        'açık_veri',
+        url
+      );
+      const units = data.success?.data ?? [];
+      const findings: AgentFinding[] = units
+        .slice(0, 5)
+        .map((unit, index) => {
+          const name =
+            unit.strat_name ||
+            unit.name ||
+            'Adlandırılmamış jeolojik birim';
+          const details = [
+            unit.lith && `Litoloji: ${unit.lith}`,
+            unit.best_int_name &&
+              `Jeolojik zaman: ${unit.best_int_name}`,
+            Number.isFinite(unit.t_age) &&
+              Number.isFinite(unit.b_age) &&
+              `Yaş aralığı: ${unit.t_age}-${unit.b_age} milyon yıl`,
+            unit.descrip,
+          ]
+            .filter(Boolean)
+            .join(' • ');
+
+          return {
+            id: `jeoloji-${unit.map_id ?? index}`,
+            agentId: 'jeoloji',
+            title: name,
+            description:
+              details || 'Kaynakta ek birim açıklaması bulunmuyor.',
+            confidence: 0.9,
+            sources: [geologySource],
+            coordinates: {
+              lat: context.latitude,
+              lng: context.longitude,
+            },
+          };
+        });
 
       return {
         agentId: 'jeoloji',
         status: 'tamamlandı',
-        findings: [],
-        sources,
+        findings,
+        sources: [geologySource],
         startedAt,
-        completedAt:
-          new Date().toISOString(),
+        completedAt: new Date().toISOString(),
       };
     } catch (error) {
-      return {
-        agentId: 'jeoloji',
-        status: 'hata',
-        findings: [],
-        sources: [],
-        startedAt,
-        completedAt:
-          new Date().toISOString(),
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Bilinmeyen hata',
-      };
+      return failedResult('jeoloji', startedAt, error);
     }
   },
 };

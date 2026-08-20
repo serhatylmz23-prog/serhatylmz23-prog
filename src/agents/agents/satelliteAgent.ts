@@ -1,42 +1,37 @@
 import type {
-  SyAgent,
   AgentContext,
   AgentResult,
+  SyAgent,
 } from '../agentTypes';
+import {
+  canRunForLocation,
+  source,
+} from './agentHelpers';
 
 export const satelliteAgent: SyAgent = {
   id: 'uydu',
-
   name: 'Uydu Ajanı',
-
   description:
-    'Seçilen bölge için uydu ve uzaktan algılama verilerini araştırır.',
+    'Haritadaki Esri World Imagery katmanının kaynağını raporlar; otomatik görüntü yorumu yapmaz.',
+  canRun: canRunForLocation,
 
-  canRun: (
-    context: AgentContext
-  ) => {
-    return (
-      context.latitude >= -90 &&
-      context.latitude <= 90 &&
-      context.longitude >= -180 &&
-      context.longitude <= 180
+  async run(_context: AgentContext): Promise<AgentResult> {
+    const startedAt = new Date().toISOString();
+    const imagerySource = source(
+      'esri-world-imagery',
+      'Esri World Imagery basemap',
+      'Esri',
+      'harita',
+      'https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9'
     );
-  },
-
-  async run(
-    _context: AgentContext
-  ): Promise<AgentResult> {
-    const startedAt =
-      new Date().toISOString();
 
     return {
       agentId: 'uydu',
       status: 'tamamlandı',
       findings: [],
-      sources: [],
+      sources: [imagerySource],
       startedAt,
-      completedAt:
-        new Date().toISOString(),
+      completedAt: new Date().toISOString(),
     };
   },
 };

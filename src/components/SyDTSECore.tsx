@@ -30,6 +30,15 @@ export const SyDTSECore: React.FC = () => {
   const [hesaplananMesafe, setHesaplananMesafe] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+      }
+    };
+  }, []);
 
   const [seciliKatmanlar, setSeciliKatmanlar] = useState<Record<string, boolean>>({
     noktaBulutu: true,
@@ -47,12 +56,21 @@ export const SyDTSECore: React.FC = () => {
     if (!e.target.files?.[0]) return;
     const file = e.target.files[0];
     setMedyaTuru(file.type.startsWith('video') ? 'VIDEO' : 'IMAGE');
-    setMedyaUrl(URL.createObjectURL(file));
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+    }
+    const objectUrl = URL.createObjectURL(file);
+    objectUrlRef.current = objectUrl;
+    setMedyaUrl(objectUrl);
   };
 
   const handleLinkYukle = (e: React.FormEvent) => {
     e.preventDefault();
     if (!linkInput.trim()) return;
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
     setMedyaUrl(linkInput.trim());
     setMedyaTuru(linkInput.includes('mp4') || linkInput.includes('youtube') ? 'VIDEO' : 'IMAGE');
     setLinkInput('');

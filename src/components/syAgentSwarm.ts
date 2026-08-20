@@ -7,7 +7,7 @@ export interface AgentReport {
 }
 
 export interface SwarmAnalysisResult {
-  isManMade: boolean;
+  isManMade: boolean | null;
   astronomicalAlignment?: string;
   historicalPeriod?: string;
   geologicalContext: string;
@@ -16,72 +16,187 @@ export interface SwarmAnalysisResult {
   sealHash: string;
 }
 
-// Bir blob:/http(s):/data: URL'sini base64 data URI'ye cevirir. Boylece hem
-// kullanicinin yukledigi lokal dosyalar (blob:) hem de yapistirilan harici
-// linkler ayni sekilde sunucuya gonderilebilir.
-async function medyaUrlToBase64(url: string): Promise<string> {
-  const yanit = await fetch(url);
-  const blob = await yanit.blob();
-  return await new Promise<string>((resolve, reject) => {
+const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 1_600;
+
+function readBlobAsDataUri(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
+    reader.onloadend = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Medya okunamadı.'));
+    reader.onerror = () => reject(new Error('Medya okunamadı.'));
     reader.readAsDataURL(blob);
   });
 }
 
-export const runSyKasifSwarm = async (
-  mediaDataUri: string,
-  gpsCoords?: { lat: number; lng: number }
-): Promise<SwarmAnalysisResult> => {
-  const prompt = `
-SEN BİR ÇOKLU AJAN ORKESTRASYON MOTORUSUN (SyKaşif Swarm).
-Aşağıdaki görseli ve koordinatları şu 4 uzman ajan gözüyle aynı anda analiz et:
+function canvasToJpeg(canvas: HTMLCanvasElement): string {
+  return canvas.toDataURL('image/jpeg', 0.86);
+}
 
-1. [JEOLOJİ & MTA AJANI]: Kayadaki izler doğal çatlak/erozyon mu yoksa murç/keski/harç izi mi?
-2. [ASTRO-ARKEOLOJİ AJANI]: Oyuklar, çentikler veya yönelimler (Giza/Orion modeli gibi) ekinoks, yıldız dizilimi veya göksel takvimle örtüşüyor mu?
-3. [NÜMİSMATİK & MÜZE AJANI]: Lahit, heykel, sikke, runik yazı veya medeniyet sembolü var mı? Hangi döneme ait?
-4. [SAHA & FORUM İSTİHBARATI]: Literatürde, define analizlerinde ve açık kaynaklarda bu işaretin karşılığı nedir?
+async function imageBlobToDataUri(blob: Blob): Promise<string> {
+  if (
+    blob.size <= 2_500_000 &&
+    ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(blob.type)
+  ) {
+    return readBlobAsDataUri(blob);
+  }
 
-Koordinat: ${gpsCoords ? `${gpsCoords.lat}, ${gpsCoords.lng}` : 'Belirtilmedi'}
-Görseli en ince detayına kadar çapraz doğrula ve net bir nihai hüküm çıkar.
-`;
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const scale = Math.min(
+      1,
+      MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height)
+    );
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Görsel dönüştürme başlatılamadı.');
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvasToJpeg(canvas);
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function videoBlobToFrame(blob: Blob): Promise<string> {
+  const objectUrl = URL.createObjectURL(blob);
+  const video = document.createElement('video');
+  video.muted = true;
+  video.preload = 'auto';
+  video.src = objectUrl;
 
   try {
-    // GUVENLIK: Onceki surumde OpenAI API anahtari (VITE_AI_API_KEY) tarayici
-    // tarafinda tutuluyor ve dogrudan api.openai.com'a gonderiliyordu. Bu, herhangi
-    // bir kullanicinin Gelistirici Araclari > Network sekmesinden anahtari
-    // calabilecegi anlamina geliyordu. Artik istek, gizli anahtarin sadece
-    // sunucuda kaldigi /api/vision uc noktasina yapiliyor (bkz. api/vision.ts).
-    const base64Gorsel = await medyaUrlToBase64(mediaDataUri);
-
-    const response = await fetch('/api/vision', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, imageBase64: base64Gorsel }),
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject(new Error('Video karesi okunamadı.'));
+      video.load();
     });
 
-    const data = await response.json().catch(() => null);
-    if (!response.ok || !data || data.error) {
-      throw new Error(data?.error || 'Vision servisine ulaşılamadı');
+    if (Number.isFinite(video.duration) && video.duration > 0.2) {
+      const target = Math.min(1, video.duration / 2);
+      await new Promise<void>((resolve, reject) => {
+        video.onseeked = () => resolve();
+        video.onerror = () => reject(new Error('Video karesine erişilemedi.'));
+        video.currentTime = target;
+      });
     }
 
-    const rawText: string = data.response || 'Analiz motorundan yanıt alınamadı.';
-
-    return {
-      isManMade: !rawText.toLowerCase().includes('tamamen doğal erozyon'),
-      geologicalContext: 'MTA veritabanı ve yüzey aşınma modeli tarandı.',
-      collectiveWisdomMatch: 'Açık kaynak forumlar, makaleler ve müze envanterleri tarandı.',
-      finalVerdict: rawText,
-      sealHash: 'SHA256-' + Math.random().toString(36).substring(2, 12).toUpperCase()
-    };
-  } catch {
-    return {
-      isManMade: true,
-      geologicalContext: 'Yapay iz ve doğal formasyon ayrımı yapıldı.',
-      collectiveWisdomMatch: 'Akademik tezler ve açık kaynaklar eşleştirildi.',
-      finalVerdict: 'Görseldeki izler insan müdahalesi ve astronomik yönelim taşıyor. Detaylı spektral tarama önerilir.',
-      sealHash: 'SHA256-OFFLINE-VERIFIED'
-    };
+    const scale = Math.min(
+      1,
+      MAX_IMAGE_DIMENSION /
+        Math.max(video.videoWidth, video.videoHeight)
+    );
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Video karesi dönüştürülemedi.');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvasToJpeg(canvas);
+  } finally {
+    video.removeAttribute('src');
+    video.load();
+    URL.revokeObjectURL(objectUrl);
   }
+}
+
+async function mediaUrlToImageDataUri(url: string): Promise<string> {
+  if (/^rtsp:/i.test(url) || /(?:youtube\.com|youtu\.be)/i.test(url)) {
+    throw new Error(
+      'RTSP ve YouTube sayfaları doğrudan analiz edilemez. Yerel bir görsel/video dosyası veya CORS izinli doğrudan medya URL’si kullanın.'
+    );
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Medya indirilemedi (HTTP ${response.status}).`);
+  }
+
+  const blob = await response.blob();
+  if (blob.size === 0) throw new Error('Medya dosyası boş.');
+  if (blob.size > MAX_MEDIA_BYTES) {
+    throw new Error('Medya boyutu en fazla 25 MB olabilir.');
+  }
+
+  if (blob.type.startsWith('image/')) {
+    return imageBlobToDataUri(blob);
+  }
+  if (blob.type.startsWith('video/')) {
+    return videoBlobToFrame(blob);
+  }
+
+  throw new Error(
+    `Desteklenmeyen medya türü: ${blob.type || 'bilinmiyor'}.`
+  );
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function inferManMade(text: string): boolean | null {
+  const normalized = text.toLocaleLowerCase('tr-TR');
+  const artificial = [
+    'insan yapımı',
+    'insan müdahalesi',
+    'yapay iz',
+    'oyulmuş',
+    'man-made',
+    'carved',
+  ];
+  const natural = [
+    'doğal oluşum',
+    'doğal erozyon',
+    'natural formation',
+    'natural erosion',
+  ];
+
+  if (artificial.some((phrase) => normalized.includes(phrase))) return true;
+  if (natural.some((phrase) => normalized.includes(phrase))) return false;
+  return null;
+}
+
+export const runSyKasifSwarm = async (
+  mediaUrl: string,
+  gpsCoords?: { lat: number; lng: number }
+): Promise<SwarmAnalysisResult> => {
+  const prompt = `Bu görseli yalnızca görünür piksellere dayanarak Türkçe analiz et.
+- Gözlenen nesne, yüzey, yazı ve olası insan müdahalesini ayrı ayrı belirt.
+- Görselden doğrulanamayacak dönem, astronomik hizalama, yer altı yapısı veya kaynak taraması iddiasında bulunma.
+- Belirsizliği açıkça yaz; tıbbi, adli veya arkeolojik kesin hüküm verme.
+Koordinat: ${gpsCoords ? `${gpsCoords.lat}, ${gpsCoords.lng}` : 'Sağlanmadı'}`;
+
+  const imageBase64 = await mediaUrlToImageDataUri(mediaUrl);
+  const response = await fetch('/api/vision', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, imageBase64 }),
+  });
+  const data = (await response.json().catch(() => null)) as
+    | { response?: string; error?: string }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Vision servisi HTTP ${response.status} döndürdü.`);
+  }
+
+  const finalVerdict = data?.response?.trim();
+  if (!finalVerdict) throw new Error('Vision servisi boş yanıt döndürdü.');
+
+  return {
+    isManMade: inferManMade(finalVerdict),
+    geologicalContext:
+      'Yalnızca görsel model çıktısı üretildi; jeoloji veri tabanı sorgulanmadı.',
+    collectiveWisdomMatch:
+      'Harici web, forum, müze veya akademik kaynak taraması yapılmadı.',
+    finalVerdict,
+    sealHash: `SHA256-${await sha256(finalVerdict)}`,
+  };
 };

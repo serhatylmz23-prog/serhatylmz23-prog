@@ -84,7 +84,7 @@ export const SyAgentSwarmDashboard: React.FC = () => {
           </span>
         </div>
         <div style={{ padding: '4px 10px', backgroundColor: '#0f291e', border: '1px solid #22c55e', borderRadius: '20px', color: '#4ade80', fontSize: '0.72rem', fontWeight: 'bold' }}>
-          ● 5/5 AJAN CANLI ÇALIŞIYOR
+          DEMO VERİ SETİ • CANLI DEĞİL
         </div>
       </div>
 

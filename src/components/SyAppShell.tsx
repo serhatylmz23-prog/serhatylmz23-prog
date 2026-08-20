@@ -2,11 +2,14 @@ import { useState } from 'react';
 
 import {
   SyProvider,
-  useSyContext,
 } from './context/SyContext';
+import { useSyContext } from './context/useSyContext';
 
 import { SyMap } from './SyMap';
-import { SyClassicConsole } from './SyClassicConsole';
+import SyClassicConsole from './SyClassicConsole';
+import { SyLiveRuntimePanel } from './SyLiveRuntimePanel';
+import { LiveRuntimeProvider } from './context/LiveRuntimeProvider';
+import { SyAssistantDock } from './SyAssistantDock';
 
 interface LayerDefinition {
   id: string;
@@ -26,6 +29,10 @@ function Sidebar() {
 
   const layers: LayerDefinition[] = [
     {
+      id: 'harita',
+      label: 'OpenStreetMap',
+    },
+    {
       id: 'uydu',
       label: 'Uydu Görüntüsü',
     },
@@ -34,16 +41,8 @@ function Sidebar() {
       label: 'Topografya',
     },
     {
-      id: 'termal',
-      label: 'Termal Analiz (EDS)',
-    },
-    {
-      id: 'gpr',
-      label: 'GPR / Yer Altı Radarı',
-    },
-    {
-      id: 'arkeoloji',
-      label: 'Arkeolojik Sit Alanları',
+      id: 'canli_olaylar',
+      label: 'Canlı Küresel Olaylar',
     },
   ];
 
@@ -169,6 +168,8 @@ function Sidebar() {
           paddingRight: '4px',
         }}
       >
+        <SyLiveRuntimePanel />
+
         {/* KATMANLAR */}
         <section>
           <h3
@@ -217,7 +218,12 @@ function Sidebar() {
                     }}
                   >
                     <input
-                      type="checkbox"
+                      type={layer.id === 'canli_olaylar' ? 'checkbox' : 'radio'}
+                      name={
+                        layer.id === 'canli_olaylar'
+                          ? 'live-event-overlay'
+                          : 'base-map-layer'
+                      }
                       checked={
                         isActive
                       }
@@ -437,18 +443,63 @@ function Sidebar() {
 
             <div
               style={{
-                marginTop:
-                  '8px',
-                color:
-                  '#CBD5E1',
-                lineHeight:
-                  1.5,
+                marginTop: '8px',
+                color: '#CBD5E1',
+                lineHeight: 1.5,
               }}
             >
-              {
-                analysis.summary
-              }
+              {analysis.summary}
             </div>
+
+            {analysis.findings.length > 0 && (
+              <div style={{ marginTop: '10px' }}>
+                <strong style={{ color: '#93C5FD' }}>BULGULAR</strong>
+                {analysis.findings.slice(0, 5).map((finding) => (
+                  <div
+                    key={finding.id}
+                    style={{
+                      marginTop: '7px',
+                      paddingTop: '7px',
+                      borderTop: '1px solid rgba(148,163,184,0.15)',
+                    }}
+                  >
+                    <div style={{ color: '#E2E8F0', fontWeight: 700 }}>
+                      {finding.title}
+                    </div>
+                    <div style={{ marginTop: '3px', color: '#94A3B8', lineHeight: 1.45 }}>
+                      {finding.description}
+                    </div>
+                  </div>
+                ))}
+                {analysis.findings.length > 5 && (
+                  <div style={{ marginTop: '6px', color: '#64748B' }}>
+                    +{analysis.findings.length - 5} bulgu daha
+                  </div>
+                )}
+              </div>
+            )}
+
+            {analysis.sources.length > 0 && (
+              <div style={{ marginTop: '10px' }}>
+                <strong style={{ color: '#93C5FD' }}>KAYNAKLAR</strong>
+                {analysis.sources.map((source) => (
+                  <div key={source.id} style={{ marginTop: '5px' }}>
+                    {source.url ? (
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        style={{ color: '#60A5FA' }}
+                      >
+                        {source.title}
+                      </a>
+                    ) : (
+                      <span>{source.title}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -544,7 +595,13 @@ function Sidebar() {
                       padding:
                         '9px',
                       backgroundColor:
-                        '#7F1D1D',
+                        alert.type === 'danger'
+                          ? '#7F1D1D'
+                          : alert.type === 'warning'
+                            ? '#78350F'
+                            : alert.type === 'success'
+                              ? '#14532D'
+                              : '#1E3A8A',
                       marginBottom:
                         '6px',
                       borderRadius:
@@ -552,7 +609,15 @@ function Sidebar() {
                       fontSize:
                         '12px',
                       border:
-                        '1px solid rgba(239,68,68,0.3)',
+                        `1px solid ${
+                          alert.type === 'danger'
+                            ? 'rgba(239,68,68,0.4)'
+                            : alert.type === 'warning'
+                              ? 'rgba(245,158,11,0.4)'
+                              : alert.type === 'success'
+                                ? 'rgba(34,197,94,0.4)'
+                                : 'rgba(59,130,246,0.4)'
+                        }`,
                     }}
                   >
                     {
@@ -631,7 +696,9 @@ export function SyAppShell() {
 
   return (
     <SyProvider>
+      <LiveRuntimeProvider>
       <ModSwitcher mod={mod} setMod={setMod} />
+      <SyAssistantDock />
 
       {mod === 'KLASIK' ? (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
@@ -664,6 +731,7 @@ export function SyAppShell() {
           </main>
         </div>
       )}
+      </LiveRuntimeProvider>
     </SyProvider>
   );
 }

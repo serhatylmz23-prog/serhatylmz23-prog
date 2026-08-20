@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { askKasifAI } from '../services/aiService';
 
 interface YuklenenMedya {
@@ -14,18 +14,31 @@ export const SyMediaUpload: React.FC = () => {
   const [yeniLink, setYeniLink] = useState('');
   const [analizSonucu, setAnalizSonucu] = useState<string | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const objectUrls = objectUrlsRef.current;
+    return () => {
+      for (const url of objectUrls) URL.revokeObjectURL(url);
+      objectUrls.clear();
+    };
+  }, []);
 
   // Çoklu Dosya Seçimi (Fotoğraf & Video)
   const handleDosyaSecimi = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const files = Array.from(e.target.files);
     
-    const yeniEklenenler: YuklenenMedya[] = files.map((file) => ({
-      id: Math.random().toString(36).substring(7),
-      ad: file.name,
-      tur: file.type.startsWith('video') ? 'VIDEO' : 'FOTO',
-      url: URL.createObjectURL(file)
-    }));
+    const yeniEklenenler: YuklenenMedya[] = files.map((file) => {
+      const url = URL.createObjectURL(file);
+      objectUrlsRef.current.add(url);
+      return {
+        id: crypto.randomUUID(),
+        ad: file.name,
+        tur: file.type.startsWith('video') ? 'VIDEO' : 'FOTO',
+        url,
+      };
+    });
 
     setMedyalar((prev) => [...prev, ...yeniEklenenler]);
   };
@@ -46,7 +59,7 @@ export const SyMediaUpload: React.FC = () => {
     }
 
     setYukleniyor(true);
-    setAnalizSonucu('Kanıtlar çapraz taranıyor, SHA-256 mühürleri kontrol ediliyor...');
+    setAnalizSonucu('Medya envanteri AI tarafından özetleniyor...');
 
     const baglam = `
 [YÜKLENEN KANIT VE MEDYALAR]
@@ -58,19 +71,23 @@ export const SyMediaUpload: React.FC = () => {
 
     try {
       const sonuc = await askKasifAI(
-        'Yüklenen bu çoklu medya kanıtlarını, anomali ve tarihsel/jeolojik doğruluğu açısından detaylı analiz et ve güven skoru üret.',
+        'Yalnızca sağlanan dosya ve bağlantı listesini özetle. Medya içeriklerini görmediğini, doğrulama veya güven skoru üretemeyeceğini açıkça belirt.',
         baglam
       );
       setAnalizSonucu(sonuc);
 
       // Sesli Bildirim
       if ('speechSynthesis' in window) {
-        const ut = new SpeechSynthesisUtterance('Çoklu kanıt analizi tamamlandı. Rapor hazırlandı efendim.');
+        const ut = new SpeechSynthesisUtterance('Medya envanter özeti hazırlandı.');
         ut.lang = 'tr-TR';
         window.speechSynthesis.speak(ut);
       }
-    } catch {
-      setAnalizSonucu('Analiz tamamlandı: Güven skoru %98.2. Anomali ve katman verileri doğrulandı.');
+    } catch (error) {
+      setAnalizSonucu(
+        error instanceof Error
+          ? `AI hatası: ${error.message}`
+          : 'AI servisine ulaşılamadı.'
+      );
     } finally {
       setYukleniyor(false);
     }
@@ -103,7 +120,7 @@ export const SyMediaUpload: React.FC = () => {
           fontSize: '0.75rem',
           fontFamily: 'monospace'
         }}>
-          GÜVEN: %98.7 DOĞRULANDI
+          İÇERİK DOĞRULANMADI
         </div>
       </div>
 
@@ -242,7 +259,7 @@ export const SyMediaUpload: React.FC = () => {
           boxShadow: '0 0 15px rgba(245, 158, 11, 0.4)'
         }}
       >
-        {yukleniyor ? '⏳ KANITLAR İŞLENİYOR...' : '🚀 TÜM KANITLARI ÇAPRAZ ANALİZ ET & RAPORLA'}
+        {yukleniyor ? '⏳ ENVANTER ÖZETLENİYOR...' : 'MEDYA ENVANTERİNİ ÖZETLE'}
       </button>
 
       {/* Analiz Sonuç Paneli */}
@@ -258,7 +275,7 @@ export const SyMediaUpload: React.FC = () => {
           lineHeight: '1.5'
         }}>
           <div style={{ color: '#f59e0b', fontWeight: 'bold', marginBottom: '6px', fontSize: '0.75rem' }}>
-            📊 KÂŞİF ÇAPRAZ DOĞRULAMA RAPORU:
+            📊 KÂŞİF MEDYA ENVANTER ÖZETİ:
           </div>
           {analizSonucu}
         </div>

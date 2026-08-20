@@ -1,27 +1,52 @@
-// NOT: Bu servis eskiden dogrudan halka acik "text.pollinations.ai" servisine
-// istek atiyordu; bu hem projenin kendi Cloudflare/Vercel altyapisiyla tutarsizdi
-// hem de guvenilirligi/gizliligi belirsiz ucuncu parti bir servise bagimliydi.
-// Artik projenin kendi guvenli sunucu tarafi uc noktasi olan /api/chat'i kullaniyor
-// (bkz. api/chat.ts). Gizli anahtarlar sadece sunucuda kalir, tarayiciya hic gitmez.
-export async function askKasifAI(prompt: string, screenContext?: string): Promise<string> {
+interface ChatResponse {
+  response?: string;
+  error?: string;
+}
+
+export async function askKasifAI(
+  prompt: string,
+  screenContext?: string
+): Promise<string> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    30_000
+  );
+
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, screenContext }),
+      signal: controller.signal,
     });
+    const data = (await response
+      .json()
+      .catch(() => null)) as ChatResponse | null;
 
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok || !data) {
-      throw new Error(data?.error || 'AI servisine ulaşılamadı');
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+          `AI servisi HTTP ${response.status} döndürdü.`
+      );
     }
 
-    if (data.error) throw new Error(data.error);
+    const answer = data?.response?.trim();
+    if (!answer) {
+      throw new Error('AI servisi boş yanıt döndürdü.');
+    }
 
-    return (data.response || '').trim() || 'Analiz tamamlandı ancak sonuç boş döndü.';
+    return answer;
   } catch (error) {
-    console.error('Kâşif AI Hatası:', error);
-    return 'Telemetri analiz edildi. Hedef sinyali kararlı görünüyor efendim.';
+    if (
+      error instanceof DOMException &&
+      error.name === 'AbortError'
+    ) {
+      throw new Error('AI isteği zaman aşımına uğradı.');
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }

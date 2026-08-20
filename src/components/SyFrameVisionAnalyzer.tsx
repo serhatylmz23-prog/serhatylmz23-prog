@@ -1,19 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { runSyKasifSwarm } from './syAgentSwarm';
 
 export interface AnomaliTespit {
   id: string;
   ad: string;
-  tur: 'HEYKEL' | 'YAZIT' | 'YAPI' | 'SERAMIK' | 'BOSLUK' | 'BOTANIK' | 'MINERAL';
+  tur: 'HEYKEL' | 'YAZIT' | 'YAPI' | 'SERAMIK' | 'BOSLUK' | 'BOTANIK' | 'MINERAL' | 'BELIRSIZ';
   donem: string;
-  guvenSkoru: number;
+  guvenSkoru: number | null;
   koordinat: string;
   katman: string;
   aciklama: string;
   sifaliTarif?: string;
-  kutu: { x: number; y: number; w: number; h: number };
+  kutu?: { x: number; y: number; w: number; h: number };
   taktikYonlendirme: string;
   etiketRengi: string;
+  sealHash: string;
 }
 
 export interface YuklenenMedya {
@@ -21,7 +22,8 @@ export interface YuklenenMedya {
   url: string;
   tur: 'IMAGE' | 'VIDEO';
   ad: string;
-  analizDurumu: 'BEKLIYOR' | 'ANALIZ_EDILIYOR' | 'TAMAMLANDI';
+  analizDurumu: 'BEKLIYOR' | 'ANALIZ_EDILIYOR' | 'TAMAMLANDI' | 'HATA';
+  analizHatasi?: string;
   tespitler: AnomaliTespit[];
   seciliTespitIndex: number;
 }
@@ -30,37 +32,40 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
   const [medyaListesi, setMedyaListesi] = useState<YuklenenMedya[]>([]);
   const [aktifMedyaIndex, setAktifMedyaIndex] = useState<number>(0);
   const [linkInput, setLinkInput] = useState('');
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const objectUrls = objectUrlsRef.current;
+    return () => {
+      for (const url of objectUrls) URL.revokeObjectURL(url);
+      objectUrls.clear();
+    };
+  }, []);
 
   // Yapay Zeka & Ajan Çapraz Analizini Tetikleme
   const medyayiAnalizEt = async (medyaItem: YuklenenMedya) => {
     try {
       const swarmSonuc = await runSyKasifSwarm(medyaItem.url);
 
-      // Ajanların analizinden gelen dinamik tespit modeli
       const yeniTespitler: AnomaliTespit[] = [
         {
           id: `ANO-${Date.now()}-1`,
-          ad: medyaItem.tur === 'VIDEO' ? 'HAREKETLİ KADRAJ ANOMALİSİ' : 'YÜZEY FORMASYON ANOMALİSİ',
-          tur: medyaItem.ad.toLowerCase().includes('bitki') || medyaItem.ad.toLowerCase().includes('flora') ? 'BOTANIK' : 'YAPI',
-          donem: 'Ajan Çapraz Eşleşmesi / Saha Taraması',
-          guvenSkoru: Math.floor(Math.random() * 12) + 87, // %87 - %99 dinamik güven skoru
-          koordinat: '38.6748° N, 39.2225° E (Saha Telemetrisi)',
-          katman: 'Çok Katmanlı Yüzey & Doku Analizi',
+          ad: 'GÖRSEL MODEL AÇIKLAMASI',
+          tur: 'BELIRSIZ',
+          donem: 'Görselden doğrulanmadı',
+          guvenSkoru: null,
+          koordinat: 'Sağlanmadı',
+          katman: 'Cloudflare Workers AI vision çıktısı',
           aciklama: swarmSonuc.finalVerdict,
-          sifaliTarif: swarmSonuc.finalVerdict.toLowerCase().includes('bitki') || swarmSonuc.finalVerdict.toLowerCase().includes('flora')
-            ? '🌿 Şifalı Etki: Doğal antioksidan ve doku yenileyici etken maddeler tespit edildi.'
-            : undefined,
-          kutu: { 
-            x: Math.floor(Math.random() * 20) + 20, 
-            y: Math.floor(Math.random() * 20) + 15, 
-            w: Math.floor(Math.random() * 15) + 30, 
-            h: Math.floor(Math.random() * 15) + 35 
-          },
-          taktikYonlendirme: swarmSonuc.isManMade 
-            ? '⚠️ İnsan müdahalesi/işaret şüphesi yüksek: Yılan kamera ile derinlik çatlağını tarayın ve mikro ducted drone ile üst açıları tarayın.'
-            : '🔍 Doğal erozyon olasılığı: Kamerayı 30° sağa çevirip eğik ışıkla gölge kontrastını artırın.',
-          etiketRengi: '#38bdf8'
-        }
+          taktikYonlendirme:
+            swarmSonuc.isManMade === true
+              ? 'Model insan müdahalesi olasılığından söz ediyor; uzman incelemesi olmadan kesin hüküm vermeyin.'
+              : swarmSonuc.isManMade === false
+                ? 'Model doğal oluşumdan söz ediyor; sonuç yalnızca görsel yoruma dayanır.'
+                : 'İnsan yapımı/doğal ayrımı için model çıktısı yeterince açık değil.',
+          etiketRengi: '#38bdf8',
+          sealHash: swarmSonuc.sealHash,
+        },
       ];
 
       setMedyaListesi((prev) =>
@@ -78,9 +83,22 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
         ut.lang = 'tr-TR';
         window.speechSynthesis.speak(ut);
       }
-    } catch {
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Medya analizi başarısız oldu.';
       setMedyaListesi((prev) =>
-        prev.map((m) => (m.id === medyaItem.id ? { ...m, analizDurumu: 'TAMAMLANDI' } : m))
+        prev.map((m) =>
+          m.id === medyaItem.id
+            ? {
+                ...m,
+                analizDurumu: 'HATA',
+                analizHatasi: message,
+                tespitler: [],
+              }
+            : m
+        )
       );
     }
   };
@@ -91,6 +109,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
 
     const yeniMedyalar: YuklenenMedya[] = Array.from(e.target.files).map((file, i) => {
       const url = URL.createObjectURL(file);
+      objectUrlsRef.current.add(url);
       return {
         id: `MED-${Date.now()}-${i}`,
         url: url,
@@ -117,9 +136,25 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
     e.preventDefault();
     if (!linkInput.trim()) return;
 
+    let normalizedUrl: string;
+    try {
+      const parsed = new URL(linkInput.trim());
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Yalnızca http/https bağlantıları kabul edilir.');
+      }
+      normalizedUrl = parsed.toString();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Geçerli bir medya URL’si girin.'
+      );
+      return;
+    }
+
     const yeniLink: YuklenenMedya = {
       id: `LINK-${Date.now()}`,
-      url: linkInput.trim(),
+      url: normalizedUrl,
       tur: linkInput.includes('mp4') || linkInput.includes('youtube') ? 'VIDEO' : 'IMAGE',
       ad: `Bağlantı #${medyaListesi.length + 1}`,
       analizDurumu: 'ANALIZ_EDILIYOR',
@@ -158,7 +193,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
               SyFrame™
             </span>
             <span style={{ fontSize: '0.75rem', color: '#94a3b8', borderLeft: '1px solid #334155', paddingLeft: '8px' }}>
-              CANLI ÇOKLU MEDYA & AJAN ANALİZ MOTORU
+              ÇOKLU MEDYA & GÖRSEL MODEL ANALİZİ
             </span>
           </div>
         </div>
@@ -166,7 +201,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {medyaListesi.length > 0 && (
             <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: 'bold' }}>
-              {medyaListesi.length} Medya İnceleniyor
+              {medyaListesi.length} Medya Listede
             </span>
           )}
           <label style={{
@@ -200,7 +235,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
           type="text"
           value={linkInput}
           onChange={(e) => setLinkInput(e.target.value)}
-          placeholder="İncelenecek Web, YouTube veya Canlı RTSP Kamera Linkini yapıştırın..."
+          placeholder="CORS izinli doğrudan görsel/video bağlantısı (https://...)"
           style={{
             flex: 1,
             padding: '8px 12px',
@@ -213,7 +248,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
           }}
         />
         <button type="submit" style={{ padding: '8px 16px', backgroundColor: '#f59e0b', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', color: '#000', fontSize: '0.8rem' }}>
-          Ajanlara Gönder & Çözümle
+          Görsel Modele Gönder
         </button>
       </form>
 
@@ -253,7 +288,7 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
               )}
               {medya.analizDurumu === 'ANALIZ_EDILIYOR' && (
                 <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: '#38bdf8' }}>
-                  Ajanlar Taramada...
+                  Model İşliyor...
                 </div>
               )}
               <span style={{
@@ -300,12 +335,12 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
             <div style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>
               <div style={{ fontSize: '3rem', marginBottom: '8px' }}>🎯</div>
               <div style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: 'bold' }}>Canlı Saha Kadrajı Bekleniyor</div>
-              <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Çoklu fotoğraf/video yükleyin veya web/YouTube linki girin. Ajanlar anında analiz edecektir.</div>
+              <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Fotoğraf/video yükleyin veya doğrudan medya URL’si girin. YouTube ve RTSP desteklenmez.</div>
             </div>
           )}
 
           {/* DİNAMİK EDS ÇERÇEVESİ */}
-          {aktifTespit && (
+          {aktifTespit?.kutu && (
             <div style={{
               position: 'absolute',
               top: `${aktifTespit.kutu.y}%`,
@@ -344,8 +379,12 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
                   <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>TÜR: {aktifTespit.tur}</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '1.3rem', fontWeight: '900', color: '#4ade80' }}>%{aktifTespit.guvenSkoru}</div>
-                  <div style={{ fontSize: '0.62rem', color: '#64748b' }}>GÜVEN SKORU</div>
+                  <div style={{ fontSize: '1rem', fontWeight: '900', color: '#fbbf24' }}>
+                    {aktifTespit.guvenSkoru === null
+                      ? 'PUAN YOK'
+                      : `%${aktifTespit.guvenSkoru}`}
+                  </div>
+                  <div style={{ fontSize: '0.62rem', color: '#64748b' }}>MODEL GÜVENİ</div>
                 </div>
               </div>
 
@@ -371,18 +410,24 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
                 fontSize: '0.78rem',
                 color: '#e0e7ff'
               }}>
-                <strong style={{ color: '#a5b4fc', display: 'block', marginBottom: '4px' }}>📡 AJAN SAHA & DONANIM YÖNLENDİRMESİ:</strong>
+                <strong style={{ color: '#a5b4fc', display: 'block', marginBottom: '4px' }}>MODEL ÇIKTISI İÇİN UYARI:</strong>
                 {aktifTespit.taktikYonlendirme}
               </div>
             </div>
           ) : (
             <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.85rem', margin: 'auto' }}>
-              {aktifMedya?.analizDurumu === 'ANALIZ_EDILIYOR' ? '🛰️ Çoklu ajanlar görüntüyü ve açık kaynakları tarıyor...' : 'Analiz için medya seçin veya yükleyin.'}
+              {aktifMedya?.analizDurumu === 'ANALIZ_EDILIYOR'
+                ? 'Görsel model medyayı işliyor...'
+                : aktifMedya?.analizDurumu === 'HATA'
+                  ? `Hata: ${aktifMedya.analizHatasi || 'Analiz tamamlanamadı.'}`
+                  : 'Analiz için medya seçin veya yükleyin.'}
             </div>
           )}
 
           <div style={{ fontSize: '0.65rem', color: '#64748b', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px', marginTop: '10px' }}>
-            MÜHÜR: SHA-256 DOĞRULANDI • MTA & OSINT ÇAPRAZ EŞLEŞTİRME
+            {aktifTespit
+              ? `ÇIKTI ÖZETİ: ${aktifTespit.sealHash} • HARİCİ KAYNAK TARAMASI YAPILMADI`
+              : 'Henüz doğrulanabilir model çıktısı yok.'}
           </div>
         </div>
       </div>
@@ -408,7 +453,11 @@ export const SyFrameVisionAnalyzer: React.FC = () => {
             >
               <div style={{ fontSize: '0.78rem', fontWeight: 'bold', color: item.etiketRengi }}>{item.ad}</div>
               <div style={{ fontSize: '0.68rem', color: '#94a3b8', margin: '2px 0' }}>{item.tur}</div>
-              <div style={{ fontSize: '0.72rem', color: '#4ade80', fontWeight: 'bold' }}>Güven: %{item.guvenSkoru}</div>
+              <div style={{ fontSize: '0.72rem', color: '#fbbf24', fontWeight: 'bold' }}>
+                {item.guvenSkoru === null
+                  ? 'Model güven puanı sağlamadı'
+                  : `Güven: %${item.guvenSkoru}`}
+              </div>
             </div>
           ))}
         </div>

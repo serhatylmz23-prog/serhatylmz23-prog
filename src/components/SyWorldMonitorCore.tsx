@@ -119,7 +119,7 @@ export const SyWorldMonitorCore: React.FC = () => {
   // Gerçek Tam Ekran API Yönetimi
   const toggleTamEkran = () => {
     if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen().then(() => setTamEkran(true)).catch(() => setTamEkran(true));
+      containerRef.current?.requestFullscreen().then(() => setTamEkran(true)).catch(() => setTamEkran(false));
     } else {
       document.exitFullscreen().then(() => setTamEkran(false)).catch(() => setTamEkran(false));
     }

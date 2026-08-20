@@ -30,3 +30,6 @@ dist-ssr
 .env.local
 .env.*.local
 .env*
+
+# Paylaşılabilir örnek yapılandırma repoda tutulur
+!.env.example

@@ -6,19 +6,19 @@ export default defineConfig({
 
   server: {
     host: '0.0.0.0',
-
-    // Vercel dev'in verdiği PORT'u kullanır.
-    // Yoksa 3000 üzerinden çalışır.
-    port: Number(process.env.PORT) || 3000,
-
+    allowedHosts: true,
+    port: 5173,
     proxy: {
-      '/api-cloudflare': {
-        target: 'https://api.cloudflare.com/client/v4',
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) =>
-          path.replace(/^\/api-cloudflare/, ''),
+      // Yerel geliştirmede gizli anahtarlar tarayıcıya verilmez. İstekler,
+      // local-api.js üzerinde çalışan dar kapsamlı sunucu uç noktalarına gider.
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: false,
       },
     },
+  },
+
+  preview: {
+    host: '0.0.0.0',
   },
 });

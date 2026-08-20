@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,6 +9,7 @@ import L, {
   type Map as LeafletMap,
   type TileLayer,
   type CircleMarker,
+  type LayerGroup,
 } from 'leaflet';
 
 import {
@@ -16,7 +18,8 @@ import {
 
 import 'leaflet/dist/leaflet.css';
 
-import { useSyContext } from './context/SyContext';
+import { useSyContext } from './context/useSyContext';
+import { useLiveRuntime } from './context/useLiveRuntime';
 
 interface GpsState {
   active: boolean;
@@ -31,76 +34,108 @@ const DEFAULT_CENTER: L.LatLngExpression = [
 ];
 
 const DEFAULT_ZOOM = 6;
+const AGENT_IDS = [
+  'jeoloji',
+  'arkeoloji',
+  'sismoloji',
+  'meteoroloji',
+  'uydu',
+] as const;
 
 export function SyMap() {
   const {
-  activeLayers,
-  selectedLocation,
-  setSelectedLocation,
-  addAlert,
-  setSystemStatus,
-
-  applyAgentResults,
-  setAnalysisRunning,
-  setAnalysisResult,
+    activeLayers,
+    selectedLocation,
+    setSelectedLocation,
+    addAlert,
+    setSystemStatus,
+    applyAgentResults,
+    resetAgents,
+    setAgentStatus,
+    setAnalysisRunning,
+    setAnalysisResult,
   } = useSyContext();
-  
-  const runLocationAnalysis = async (
-  latitude: number,
-  longitude: number
-) => {
-  try {
-    setAnalysisRunning(true);
+  const { snapshot: liveSnapshot } = useLiveRuntime();
+  const analysisRunRef = useRef(0);
 
-    setSystemStatus(
-      'Bölgesel analiz başlatılıyor'
-    );
+  const runLocationAnalysis = useCallback(
+    async (latitude: number, longitude: number) => {
+      const runId = ++analysisRunRef.current;
 
-    addAlert(
-      'Seçilen konum için ajan analizi başlatıldı.',
-      'info'
-    );
+      try {
+        resetAgents();
+        for (const agentId of AGENT_IDS) {
+          setAgentStatus(agentId, 'çalışıyor');
+        }
+        setAnalysisRunning(true);
+        setSystemStatus('Bölgesel analiz başlatılıyor');
+        addAlert(
+          'Seçilen konum için gerçek veri sağlayıcıları sorgulanıyor.',
+          'info'
+        );
 
-    const result =
-      await analyzeLocation(
-        latitude,
-        longitude,
-        10
-      );
+        const result = await analyzeLocation(
+          latitude,
+          longitude,
+          10
+        );
 
-    applyAgentResults(
-      result.orchestration.results
-    );
+        // Kullanıcı bu sırada başka bir konuma tıkladıysa eski yanıtı yok say.
+        if (analysisRunRef.current !== runId) return;
 
-    setAnalysisResult(
-      result.analysis.totalSources,
-      result.analysis.totalFindings,
-      result.analysis.summary
-    );
+        applyAgentResults(result.orchestration.results);
+        setAnalysisResult(
+          result.analysis.totalSources,
+          result.analysis.totalFindings,
+          result.analysis.summary,
+          result.analysis.findings,
+          result.analysis.sources
+        );
+        setSelectedLocation((current) =>
+          current.lat === latitude && current.lng === longitude
+            ? {
+                ...current,
+                name:
+                  result.regionalData.displayName ||
+                  result.regionalData.district ||
+                  current.name,
+              }
+            : current
+        );
+        setSystemStatus('Analiz tamamlandı');
 
-    setSystemStatus(
-      'Analiz tamamlandı'
-    );
-
-    addAlert(
-      `${result.orchestration.selectedAgents.length} ajan değerlendirildi.`,
-      'success'
-    );
-  } catch (error) {
-    setAnalysisRunning(false);
-
-    setSystemStatus(
-      'Analiz hatası'
-    );
-
-    addAlert(
-      error instanceof Error
-        ? error.message
-        : 'Analiz sırasında bilinmeyen hata oluştu.',
-      'danger'
-    );
-  }
-};
+        const failedCount = result.orchestration.results.filter(
+          (agent) => agent.status === 'hata'
+        ).length;
+        addAlert(
+          failedCount === 0
+            ? `${result.orchestration.selectedAgents.length} ajan tamamlandı.`
+            : `${failedCount} ajan veri sağlayıcısına ulaşamadı.`,
+          failedCount === 0 ? 'success' : 'warning'
+        );
+      } catch (error) {
+        if (analysisRunRef.current !== runId) return;
+        setAnalysisRunning(false);
+        setSystemStatus('Analiz hatası');
+        addAlert(
+          error instanceof Error
+            ? error.message
+            : 'Analiz sırasında bilinmeyen hata oluştu.',
+          'danger'
+        );
+      }
+    },
+    [
+      addAlert,
+      applyAgentResults,
+      resetAgents,
+      setAgentStatus,
+      setAnalysisResult,
+      setAnalysisRunning,
+      setSelectedLocation,
+      setSystemStatus,
+    ]
+  );
 
   const mapContainerRef =
     useRef<HTMLDivElement | null>(null);
@@ -117,13 +152,17 @@ export function SyMap() {
   const selectedMarkerRef =
     useRef<CircleMarker | null>(null);
 
-    const [gpsState, setGpsState] =
-    useState<GpsState>({
-      active: false,
-      lat: null,
-      lng: null,
-      accuracy: null,
-    });
+  const liveEventsLayerRef =
+    useRef<LayerGroup | null>(null);
+
+  const [gpsTrackingEnabled, setGpsTrackingEnabled] =
+    useState(false);
+  const [gpsState, setGpsState] = useState<GpsState>({
+    active: false,
+    lat: null,
+    lng: null,
+    accuracy: null,
+  });
 
   /*
    * -------------------------------------------------------
@@ -235,11 +274,13 @@ export function SyMap() {
     );
 
     return () => {
+      analysisRunRef.current += 1;
       map.remove();
       mapRef.current = null;
     };
   }, [
     addAlert,
+    runLocationAnalysis,
     setSelectedLocation,
     setSystemStatus,
   ]);
@@ -257,70 +298,79 @@ export function SyMap() {
       return;
     }
 
-    const layers =
-      baseLayersRef.current;
+    const layers = baseLayersRef.current;
+    const selectedBaseLayer =
+      activeLayers.find((id) => id in layers) || 'harita';
 
-    /*
-     * Uydu
-     */
-    if (
-      activeLayers.includes('uydu')
-    ) {
-      if (!map.hasLayer(layers.uydu)) {
-        layers.uydu.addTo(map);
-      }
-
-      /*
-       * Uydu aktifse normal harita
-       * alttan kaldırılır.
-       */
-      if (map.hasLayer(layers.harita)) {
-        map.removeLayer(layers.harita);
-      }
-    } else {
-      if (
-        !map.hasLayer(layers.harita)
-      ) {
-        layers.harita.addTo(map);
-      }
-
-      if (
-        map.hasLayer(layers.uydu)
-      ) {
-        map.removeLayer(layers.uydu);
-      }
-    }
-
-    /*
-     * Topografya
-     *
-     * Topografya ayrı bir üst katman
-     * olarak kullanılabilir.
-     */
-    if (
-      activeLayers.includes(
-        'topografya'
-      )
-    ) {
-      if (
-        !map.hasLayer(
-          layers.topografya
-        )
-      ) {
-        layers.topografya.addTo(map);
-      }
-    } else {
-      if (
-        map.hasLayer(
-          layers.topografya
-        )
-      ) {
-        map.removeLayer(
-          layers.topografya
-        );
+    for (const [id, layer] of Object.entries(layers)) {
+      if (id === selectedBaseLayer) {
+        if (!map.hasLayer(layer)) layer.addTo(map);
+      } else if (map.hasLayer(layer)) {
+        map.removeLayer(layer);
       }
     }
   }, [activeLayers]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (liveEventsLayerRef.current) {
+      liveEventsLayerRef.current.clearLayers();
+      map.removeLayer(liveEventsLayerRef.current);
+      liveEventsLayerRef.current = null;
+    }
+
+    if (!activeLayers.includes('canli_olaylar')) return;
+
+    const colors = {
+      low: '#38BDF8',
+      medium: '#FBBF24',
+      high: '#F97316',
+      critical: '#EF4444',
+    } as const;
+    const group = L.layerGroup();
+
+    for (const event of liveSnapshot.events) {
+      if (!Number.isFinite(event.lat) || !Number.isFinite(event.lng)) continue;
+      const popup = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = event.title;
+      const description = document.createElement('div');
+      description.textContent = event.summary;
+      const timestamp = document.createElement('small');
+      timestamp.textContent = new Date(event.observedAt).toLocaleString('tr-TR');
+      popup.append(title, document.createElement('br'), description, timestamp);
+      if (event.url) {
+        const link = document.createElement('a');
+        link.href = event.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Kaynağı aç';
+        popup.append(document.createElement('br'), link);
+      }
+
+      L.circleMarker([event.lat, event.lng], {
+        radius: event.severity === 'critical' ? 9 : event.severity === 'high' ? 7 : 5,
+        color: '#FFFFFF',
+        weight: 1,
+        fillColor: colors[event.severity],
+        fillOpacity: 0.82,
+      })
+        .bindPopup(popup)
+        .addTo(group);
+    }
+
+    group.addTo(map);
+    liveEventsLayerRef.current = group;
+    return () => {
+      group.clearLayers();
+      if (map.hasLayer(group)) map.removeLayer(group);
+      if (liveEventsLayerRef.current === group) {
+        liveEventsLayerRef.current = null;
+      }
+    };
+  }, [activeLayers, liveSnapshot.events]);
 
   /*
    * -------------------------------------------------------
@@ -356,20 +406,20 @@ export function SyMap() {
         }
       );
 
-    marker
-      .bindPopup(
-        `
-        <strong>Seçilen Konum</strong><br/>
-        Enlem: ${selectedLocation.lat.toFixed(
-          6
-        )}<br/>
-        Boylam: ${selectedLocation.lng.toFixed(
-          6
-        )}<br/>
-        ${selectedLocation.name}
-        `
-      )
-      .addTo(map);
+    const popup = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = 'Seçilen Konum';
+    popup.append(
+      title,
+      document.createElement('br'),
+      `Enlem: ${selectedLocation.lat.toFixed(6)}`,
+      document.createElement('br'),
+      `Boylam: ${selectedLocation.lng.toFixed(6)}`,
+      document.createElement('br'),
+      selectedLocation.name
+    );
+
+    marker.bindPopup(popup).addTo(map);
 
     selectedMarkerRef.current =
       marker;
@@ -383,6 +433,8 @@ export function SyMap() {
    */
 
   useEffect(() => {
+    if (!gpsTrackingEnabled) return;
+
     if (
       !navigator.geolocation
     ) {
@@ -527,8 +579,32 @@ export function SyMap() {
     };
   }, [
     addAlert,
+    gpsTrackingEnabled,
     setSystemStatus,
   ]);
+
+  const toggleGpsTracking = () => {
+    if (gpsTrackingEnabled) {
+      setGpsTrackingEnabled(false);
+      setGpsState({
+        active: false,
+        lat: null,
+        lng: null,
+        accuracy: null,
+      });
+
+      const map = mapRef.current;
+      if (map && gpsMarkerRef.current) {
+        map.removeLayer(gpsMarkerRef.current);
+        gpsMarkerRef.current = null;
+      }
+      setSystemStatus('GPS kapalı');
+      return;
+    }
+
+    setGpsTrackingEnabled(true);
+    setSystemStatus('GPS izni bekleniyor');
+  };
 
   /*
    * -------------------------------------------------------
@@ -663,13 +739,17 @@ export function SyMap() {
             fontSize: 12,
             color: gpsState.active
               ? '#22C55E'
-              : '#F59E0B',
+              : gpsTrackingEnabled
+                ? '#F59E0B'
+                : '#94A3B8',
           }}
         >
           ●{' '}
           {gpsState.active
             ? 'GPS AKTİF'
-            : 'GPS BEKLENİYOR'}
+            : gpsTrackingEnabled
+              ? 'GPS BEKLENİYOR'
+              : 'GPS KAPALI'}
         </div>
 
         {gpsState.lat !== null &&
@@ -710,7 +790,27 @@ export function SyMap() {
 
         <button
           type="button"
+          onClick={toggleGpsTracking}
+          style={{
+            width: '100%',
+            marginTop: 10,
+            padding: '8px 10px',
+            borderRadius: 6,
+            border: `1px solid ${gpsTrackingEnabled ? 'rgba(239,68,68,0.45)' : 'rgba(34,197,94,0.45)'}`,
+            background: gpsTrackingEnabled
+              ? 'rgba(239,68,68,0.12)'
+              : 'rgba(34,197,94,0.12)',
+            color: gpsTrackingEnabled ? '#FCA5A5' : '#86EFAC',
+            cursor: 'pointer',
+          }}
+        >
+          {gpsTrackingEnabled ? 'GPS TAKİBİNİ DURDUR' : 'GPS TAKİBİNİ BAŞLAT'}
+        </button>
+
+        <button
+          type="button"
           onClick={goToGps}
+          disabled={!gpsState.active}
           style={{
             width: '100%',
             marginTop: 10,
@@ -721,8 +821,8 @@ export function SyMap() {
               '1px solid rgba(59,130,246,0.4)',
             background:
               'rgba(59,130,246,0.15)',
-            color: '#93C5FD',
-            cursor: 'pointer',
+            color: gpsState.active ? '#93C5FD' : '#64748B',
+            cursor: gpsState.active ? 'pointer' : 'not-allowed',
           }}
         >
           GPS KONUMUNA GİT

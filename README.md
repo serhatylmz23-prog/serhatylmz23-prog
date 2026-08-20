@@ -1,93 +1,160 @@
-# SyKaşif Heritage / Doğa Edition
+# SyKaşif Heritage / Canlı Ekosistem
 
-React + Vite tabanlı saha/arkeoloji operasyon konsolu. İki ayrı ara yüz modu
-içerir (uygulama içinde sağ üstten geçiş yapılabilir):
+React + Vite arayüzü, gerçek açık veri ajanları, canlı SSE olay akışı, Cloudflare orkestrasyonu, Azure Türkçe ses ve yerel NodeODM dijital ikiz motoru.
 
-- **🗺️ Harita & Ajanlar** (varsayılan) — Leaflet tabanlı canlı harita, GPS
-  takibi ve seçilen konum için 5 ajanlı (jeoloji, arkeoloji, sismoloji,
-  meteoroloji, uydu) otomatik analiz orkestrasyonu.
-- **⚜️ Klasik Konsol** — projenin ilk sürümündeki sekmeli panel grubu (Ana
-  Konsol, Dünya Monitörü, DTSE Tarama, Görüntü Analizi, Miras Küresel, Ajan
-  Ağı, Medya Merkezi, Ekosistem) ve KÂŞİF sesli/metinli asistan.
+## Çalışan gerçek modüller
+
+- **Canlı Ekosistem:** USGS, NASA EONET ve GDACS akışlarını periyodik yeniler; olaylara göre dinamik ajan sayısı üretir.
+- **Küresel olay katmanı:** Canlı olayları Leaflet haritasında önem rengiyle gösterir.
+- **Konumsal ajanlar:** Macrostrat, OpenStreetMap Overpass, USGS, Open-Meteo ve Nominatim sorguları.
+- **Onay kuyruğu:** Güvenilir kayıtlı kaynaklar otomatik yenilenir; yeni kaynak/model/kural onay ister.
+- **KÂŞİF sohbet:** Konuşma geçmişini ve canlı ekosistem özetini kullanır.
+- **Azure Speech:** `tr-TR-EmelNeural` Türkçe kadın sesi ve Azure STT; yapılandırma yoksa tarayıcı sesi/STT yedeği.
+- **Dijital ikiz:** Çoklu fotoğrafları gerçek NodeODM görevine gönderir; nokta bulutu, mesh ve ortofoto çıktıları üretir.
+- **Görsel analiz:** Cloudflare Workers AI vision; yapılmamış kaynak veya adli doğrulama iddiasında bulunmaz.
+
+Eski “Ana Konsol”, “Dünya Monitörü” ve benzeri görsel panellerde bazı tasarım amaçlı sabit değerler hâlâ vardır ve arayüzde kapsam uyarısıyla işaretlenmiştir. Canlı Ekosistem ile DTSE görev ekranı bu sabit verileri kullanmaz.
+
+## Donanım profili
+
+Yerel dijital ikiz ayarları şu bilgisayara göre sınırlandırılmıştır:
+
+- Intel Core i3-9100F
+- 16 GB RAM
+- AMD Radeon RX 570 8 GB
+- Windows 10 x64
+
+RX 570 CUDA uyumlu olmadığı için NodeODM CPU modunda çalışır. Aynı anda tek görev, hızlı profilde 20-80 fotoğraf önerilir. Ayrıntılar: `infrastructure/local-twin/README.md`.
+
+## Gereksinimler
+
+- Ana uygulama için Node.js 20.19+; Cloudflare Wrangler için Node.js 22 önerilir
+- npm
+- Canlı yerel çalışma için internet bağlantısı
+- Dijital ikiz için WSL2 + Docker Desktop
+- AI için Cloudflare Workers AI hesap kimliği ve dar yetkili token
+- Doğal kadın sesi için Azure Speech F0 kaynağı
 
 ## Kurulum
 
-```bash
+PowerShell:
+
+```powershell
+npm config set registry https://registry.npmjs.org/ --location=user
 npm install
+Copy-Item .env.example .env.local
+notepad .env.local
 ```
 
-## Ortam Değişkenleri (.env)
+`.env.local`:
 
-AI asistanı (`/api/chat`), görüntü analizi (`/api/vision`) ve genel
-Cloudflare API vekil uç noktası (`/api/cloudflare-proxy`), Cloudflare
-Workers AI kullanır. `.env.example` dosyasını `.env` olarak kopyalayıp kendi
-Cloudflare hesap bilgilerinizi girin:
-
-```
+```dotenv
 CLOUDFLARE_ACCOUNT_ID=...
 CLOUDFLARE_AI_TOKEN=...
+CLOUDFLARE_TEXT_MODEL=@cf/zai-org/glm-4.7-flash
+CLOUDFLARE_VISION_MODEL=@cf/llava-hf/llava-1.5-7b-hf
+
+AZURE_SPEECH_KEY=...
+AZURE_SPEECH_REGION=westeurope
+
+NODEODM_URL=http://127.0.0.1:3001
+VITE_SYKASIF_RUNTIME_URL=
 ```
 
-> Önemli: Bu değişkenlerin başına **asla** `VITE_` öneki eklemeyin. `VITE_`
-> önekli değişkenler Vite tarafından tarayıcıya gönderilen JS paketine
-> gömülür ve gizli anahtarınızı herkese açık hale getirir. Bu değişkenler
-> yalnızca `api/*.ts` / `api/*.js` sunucu tarafı (Vercel fonksiyonları) ve
-> `local-proxy.js` içinde okunmalıdır.
+Azure kaynağınız başka bölgedeyse portalda yazan bölge kodunu kullanın. Gizli anahtarlara `VITE_` öneki eklemeyin.
 
-`.env` ve `.env.local` dosyaları `.gitignore` içinde olduğu için commit
-edilmez.
+## Canlı yerel çalışma
 
-## Geliştirme
-
-İki seçenek var:
-
-**A) Sadece arayüz (AI çağrıları çalışmaz):**
-```bash
-npm run dev
-```
-
-**B) Arayüz + yerel Cloudflare vekil sunucusu (AI çağrıları çalışır):**
-```bash
+```powershell
 npm run dev:all
 ```
-Bu komut `local-proxy.js`'i (port 3000, `/api/cloudflare-proxy/*`) ve Vite
-sunucusunu (port 5173) birlikte başlatır.
 
-**C) Vercel fonksiyonlarını da (api/chat.ts, api/vision.ts) yerelde test
-etmek için:**
-```bash
-vercel dev
+- Arayüz: `http://localhost:5173`
+- Yerel API: `http://127.0.0.1:3000`
+- Sağlık: `http://127.0.0.1:3000/health`
+- Canlı snapshot: `http://127.0.0.1:3000/api/runtime/snapshot`
+
+Yerel runtime beş dakikada bir USGS, NASA EONET ve GDACS'i yeniler. SSE bağlantısı açık olduğu için ajan/olay değişiklikleri arayüze anında gönderilir.
+
+Terminal çıktısını kopyalarken `Ctrl+C` kullanmayın; bu sunucuları durdurur. VS Code terminalinde `Ctrl+Shift+C` kullanın.
+
+## Dijital ikiz motoru
+
+Önkoşul denetimi:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\infrastructure\local-twin\check-windows.ps1
 ```
 
-## Derleme
+NodeODM:
 
-```bash
-npm run build
+```powershell
+npm run twin:up
+Invoke-RestMethod http://127.0.0.1:3001/info
+npm run dev:all
 ```
 
-## Tip Kontrolü / Lint
+Klasik Konsol → **DTSE Tarama** sekmesinden örtüşen fotoğrafları seçin. Tek fotoğraf ölçülü dijital ikiz değildir; en az 3, pratikte 20+ örtüşen fotoğraf gerekir.
 
-```bash
+Durdurma:
+
+```powershell
+npm run twin:down
+```
+
+## Cloudflare sürekli çalışma
+
+Bilgisayar kapalıyken ajanların çalışması için `cloudflare/runtime-worker/README.md` adımlarını uygulayın. Worker dağıtıldıktan sonra URL'yi `.env.local` içine yazın:
+
+```dotenv
+VITE_SYKASIF_RUNTIME_URL=https://sykasif-runtime.<hesap>.workers.dev
+```
+
+Cloudflare Worker şunları içerir:
+
+- Cron (`*/5 * * * *`)
+- D1 olay/kaynak/onay kayıtları
+- Durable Object SSE yayın hub'ı
+- Dinamik kaynak ve olay ajanları
+- Yönetici tokenlı onay işlemleri
+
+## Doğrulama
+
+```powershell
 npm run typecheck
 npm run lint
+npm test
+npm run build
+npm audit
 ```
 
-## Proje Yapısı
+Cloudflare runtime ayrıca doğrulanabilir:
 
-- `src/components/SyAppShell.tsx` — kök bileşen, mod anahtarını barındırır.
-- `src/components/SyMap.tsx` + `src/components/context/SyContext.tsx` —
-  harita, GPS ve paylaşılan uygulama durumu.
-- `src/agents/` — ajan tipleri (`agentTypes.ts`), ajan uygulamaları
-  (`agents/`) ve orkestrasyon mantığı (`agentOrchestrator.ts`).
-- `src/services/analysisRunner.ts` — bir konum için bölgesel veri + ajan
-  orkestrasyonu + çapraz analizi birleştirir.
-- `src/components/SyClassicConsole.tsx` — eski sekmeli panel grubunu bir
-  araya getiren kabuk.
-- `src/kasif_asistan.tsx` — KÂŞİF sesli/metinli asistan bileşeni.
-- `src/services/aiService.ts` — `/api/chat` için istemci sarmalayıcısı.
-- `api/chat.ts`, `api/vision.ts` — Cloudflare Workers AI'a vekillik eden
-  güvenli sunucu tarafı uç noktaları (Vercel Edge Functions).
-- `api/cloudflare-proxy.js` / `local-proxy.js` — Cloudflare API'sinin genel
-  (accounts/zones/workers) uç noktalarına güvenli vekillik eden Node
-  fonksiyonu; biri Vercel'de, diğeri salt yerel `npm run dev:all` akışında
-  çalışır.
+```powershell
+cd cloudflare\runtime-worker
+npm install
+npm run typecheck
+```
+
+## Güvenlik ve doğruluk
+
+- Genel Cloudflare yönetim proxy'si kapalıdır.
+- AI, Azure ve onay anahtarları sunucu ortam değişkenlerinde kalır.
+- Yeni kaynaklar otomatik olarak güvenilir ilan edilmez; onay kuyruğuna alınır.
+- Kaynak verisi uzman görüşü, resmî afet uyarısı veya arkeolojik tescil yerine geçmez.
+- Kamuya açık üretimde Cloudflare Access/Turnstile ve kalıcı rate limit eklenmelidir.
+- KÂŞİF, ölçülmemiş sensör veya yapılmamış analiz sonucu üretmemesi için sistem talimatıyla sınırlandırılmıştır.
+
+## Proje yapısı
+
+- `server/live-runtime.js` — yerel gerçek zamanlı açık veri ajanları ve SSE
+- `server/nodeodm-routes.js` — NodeODM görev/yükleme/çıktı API'si
+- `cloudflare/runtime-worker/` — Cron + D1 + Durable Object bulut runtime
+- `infrastructure/local-twin/` — donanıma özel Docker ve PowerShell kurulumları
+- `src/components/SyLiveRuntimePanel.tsx` — dinamik ajan/kaynak/onay paneli
+- `src/components/SyDigitalTwinRuntime.tsx` — gerçek fotogrametri görev ekranı
+- `src/services/voiceService.ts` — Azure Emel Neural STT/TTS ve tarayıcı yedeği
+- `api/speech-token.ts` — kısa ömürlü Azure Speech token uç noktası
+- `api/chat.ts`, `api/vision.ts` — Vercel AI giriş noktaları
+- `local-api.js` — yerel API bileşimi

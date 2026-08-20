@@ -1,17 +1,18 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
 
 import type {
+  AgentFinding,
   AgentId,
   AgentResult,
+  AgentSource,
   AgentStatus,
 } from '../../agents/agentTypes';
+import { SyContext } from './SyContextDefinition';
 
 export interface SyAlert {
   id: string;
@@ -45,6 +46,8 @@ export interface SyAnalysisState {
   running: boolean;
   totalSources: number;
   totalFindings: number;
+  findings: AgentFinding[];
+  sources: AgentSource[];
   summary: string;
 }
 
@@ -98,19 +101,19 @@ export interface SyContextValue {
   setAnalysisResult: (
     totalSources: number,
     totalFindings: number,
-    summary: string
+    summary: string,
+    findings: AgentFinding[],
+    sources: AgentSource[]
   ) => void;
 }
 
-const SyContext =
-  createContext<
-    SyContextValue | undefined
-  >(undefined);
-
-const INITIAL_LAYERS = [
+const BASE_LAYER_IDS = [
+  'harita',
   'uydu',
   'topografya',
 ];
+
+const INITIAL_LAYERS = ['uydu', 'canli_olaylar'];
 
 const INITIAL_AGENTS: SyAgentState[] = [
   {
@@ -197,6 +200,8 @@ export function SyProvider({
     running: false,
     totalSources: 0,
     totalFindings: 0,
+    findings: [],
+    sources: [],
     summary: 'Henüz analiz yapılmadı.',
   });
 
@@ -208,25 +213,24 @@ export function SyProvider({
 
   const toggleLayer = useCallback(
     (layerId: string) => {
-      setActiveLayers(
-        (currentLayers) => {
-          if (
-            currentLayers.includes(
-              layerId
-            )
-          ) {
-            return currentLayers.filter(
-              (id) =>
-                id !== layerId
-            );
-          }
-
+      setActiveLayers((currentLayers) => {
+        if (BASE_LAYER_IDS.includes(layerId)) {
           return [
-            ...currentLayers,
+            ...currentLayers.filter(
+              (id) => !BASE_LAYER_IDS.includes(id)
+            ),
             layerId,
           ];
         }
-      );
+
+        if (currentLayers.includes(layerId)) {
+          return currentLayers.filter(
+            (id) => id !== layerId
+          );
+        }
+
+        return [...currentLayers, layerId];
+      });
     },
     []
   );
@@ -361,8 +365,9 @@ export function SyProvider({
         running: false,
         totalSources: 0,
         totalFindings: 0,
-        summary:
-          'Henüz analiz yapılmadı.',
+        findings: [],
+        sources: [],
+        summary: 'Henüz analiz yapılmadı.',
       });
     }, []);
 
@@ -390,12 +395,16 @@ export function SyProvider({
       (
         totalSources: number,
         totalFindings: number,
-        summary: string
+        summary: string,
+        findings: AgentFinding[],
+        sources: AgentSource[]
       ) => {
         setAnalysis({
           running: false,
           totalSources,
           totalFindings,
+          findings,
+          sources,
           summary,
         });
       },
@@ -465,17 +474,4 @@ export function SyProvider({
       {children}
     </SyContext.Provider>
   );
-}
-
-export function useSyContext(): SyContextValue {
-  const context =
-    useContext(SyContext);
-
-  if (!context) {
-    throw new Error(
-      'useSyContext yalnızca SyProvider içerisinde kullanılabilir.'
-    );
-  }
-
-  return context;
 }

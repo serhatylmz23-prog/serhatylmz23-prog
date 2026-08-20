@@ -78,13 +78,22 @@ export const SyMasterCore: React.FC = () => {
   const [ajanlar, setAjanlar] = useState<Ajan[]>(BASLANGIC_AJANLARI);
 
   const [dinliyorMu, setDinliyorMu] = useState(false);
-  const [asistanCevabi, setAsistanCevabi] = useState('Saha sensörleri ve analiz motoru hazır.');
+  const [asistanCevabi, setAsistanCevabi] = useState('Demo konsol hazır; doğrulanmış sensör verisi yok.');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const objectUrls = objectUrlsRef.current;
+    return () => {
+      for (const url of objectUrls) URL.revokeObjectURL(url);
+      objectUrls.clear();
+    };
+  }, []);
 
   const [bildirimler, setBildirimler] = useState<Bildirim[]>([
     { id: '1', baslik: 'RTK FIX KİLİTLENDİ', detay: '±1.8 cm hassasiyet doğrulandı.', tur: 'BASARILI', zaman: 'Az önce' },
@@ -127,7 +136,8 @@ export const SyMasterCore: React.FC = () => {
       setDinliyorMu(false);
       
       if (komut.includes('analiz') || komut.includes('tara') || komut.includes('hedef')) {
-        const cevap = 'Analiz tamamlandı. 128 derece açıda 5.4 metre mesafede anomali odak noktası belirlendi.';
+        const cevap =
+          'Bağlı ve doğrulanmış sensör verisi olmadığı için fiziksel hedef analizi başlatılamadı.';
         setAsistanCevabi(cevap);
         konus(cevap);
       } else if (komut.includes('uydu')) {
@@ -143,10 +153,21 @@ export const SyMasterCore: React.FC = () => {
         // kullanıcıya geri okunuyordu ("Komutunuz işlendi: ..."). Artık
         // tanınmayan komutlar gerçek KÂŞİF AI servisine (/api/chat) gönderiliyor.
         setAsistanCevabi('Düşünüyor...');
-        askKasifAI(komut, `Seçili il: ${seciliIl}, Harita: ${haritaTipi}, Hava: ${havaDurumu}`).then((cevap) => {
-          setAsistanCevabi(cevap);
-          konus(cevap);
-        });
+        askKasifAI(
+          komut,
+          `Arayüz seçimi — il: ${seciliIl}, harita: ${haritaTipi}, hava simülasyonu: ${havaDurumu}. Doğrulanmış sensör verisi yok.`
+        )
+          .then((cevap) => {
+            setAsistanCevabi(cevap);
+            konus(cevap);
+          })
+          .catch((error: unknown) => {
+            setAsistanCevabi(
+              error instanceof Error
+                ? `AI hatası: ${error.message}`
+                : 'AI servisine ulaşılamadı.'
+            );
+          });
       }
     };
 
@@ -177,7 +198,7 @@ export const SyMasterCore: React.FC = () => {
 
   const toggleTamEkran = () => {
     if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen().then(() => setTamEkran(true)).catch(() => setTamEkran(true));
+      containerRef.current?.requestFullscreen().then(() => setTamEkran(true)).catch(() => setTamEkran(false));
     } else {
       document.exitFullscreen().then(() => setTamEkran(false)).catch(() => setTamEkran(false));
     }
@@ -185,12 +206,16 @@ export const SyMasterCore: React.FC = () => {
 
   const handleCokluMedya = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    const yeniDosyalar: YuklenenMedya[] = Array.from(e.target.files).map((file, idx) => ({
-      id: `${Date.now()}_${idx}`,
-      url: URL.createObjectURL(file),
-      ad: file.name,
-      tur: file.type.startsWith('video') ? 'VIDEO' : 'IMAGE'
-    }));
+    const yeniDosyalar: YuklenenMedya[] = Array.from(e.target.files).map((file, idx) => {
+      const url = URL.createObjectURL(file);
+      objectUrlsRef.current.add(url);
+      return {
+        id: `${Date.now()}_${idx}`,
+        url,
+        ad: file.name,
+        tur: file.type.startsWith('video') ? 'VIDEO' : 'IMAGE',
+      };
+    });
     setMedyaListesi(prev => [...prev, ...yeniDosyalar]);
     setSeciliMedyaIndex(medyaListesi.length);
 
