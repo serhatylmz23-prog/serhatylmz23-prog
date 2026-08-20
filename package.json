@@ -1,15 +1,12 @@
-"scripts": {
-  "start:proxy": "node local-proxy.js",
-  "dev": "vite --host --port 5173",
-  "dev:all": "concurrently \"npm run start:proxy\" \"npm run dev\""
-}
 {
   "name": "sykasif_doga",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "start:proxy": "node local-proxy.js",
     "dev": "vite --host --port 5173",
+    "dev:all": "concurrently \"npm run start:proxy\" \"npm run dev\"",
     "build": "vite build",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
