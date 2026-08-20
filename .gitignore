@@ -30,3 +30,9 @@ dist-ssr
 .env.local
 .env.*.local
 .vercel
+# local environment files
+.env
+.env.local
+.env.*.local
+
+.env.local
