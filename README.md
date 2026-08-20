@@ -1,16 +1,71 @@
-# React + Vite
+# SyKaşif Heritage Edition
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite tabanlı, saha/arkeoloji temalı bir operasyon konsolu. Harita katmanları,
+medya/kanıt analizi, çoklu ajan istihbarat paneli ve Türkçe sesli asistan (KÂŞİF)
+içerir.
 
-Currently, two official plugins are available:
+## Kurulum
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+```
 
-## React Compiler
+## Ortam Değişkenleri (.env)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+AI asistanı (`/api/chat`) ve görüntü analizi (`/api/vision`) uç noktaları,
+Cloudflare Workers AI kullanır. Proje kökünde bir `.env` dosyası oluşturup
+kendi Cloudflare hesap bilgilerinizi girin:
 
-## Expanding the Oxlint configuration
+```
+CLOUDFLARE_ACCOUNT_ID=...
+CLOUDFLARE_AI_TOKEN=...
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+> Önemli: Bu değişkenlerin başına **asla** `VITE_` öneki eklemeyin. `VITE_`
+> önekli değişkenler Vite tarafından tarayıcıya gönderilen JS paketine
+> gömülür ve gizli anahtarınızı herkese açık hale getirir. Bu değişkenler
+> yalnızca `api/*.ts` sunucu tarafı (Vercel Edge Function) kodunda okunmalıdır.
+
+`.env` dosyası `.gitignore` içinde olduğu için commit edilmez.
+
+## Geliştirme
+
+```bash
+npm run dev
+```
+
+`api/*.ts` uç noktaları Vercel Edge Functions olarak yazıldığından, bunları
+yerelde test etmek için `vercel dev` kullanmanız gerekir; salt `vite`
+geliştirme sunucusu bu uç noktaları servis etmez (bu durumda AI çağrıları
+otomatik olarak sabit/yedek bir yanıta düşer).
+
+## Derleme
+
+```bash
+npm run build
+```
+
+## Tip Kontrolü / Lint
+
+```bash
+npm run typecheck
+npm run lint
+```
+
+## Proje Yapısı
+
+- `src/components/SyAppShell.tsx` — sekmeli ana uygulama kabuğu (tüm
+  panelleri birbirine bağlar).
+- `src/components/SyMasterCore.tsx` — ana operasyon konsolu (harita, medya,
+  spektral analiz, ajan sürüsü).
+- `src/components/SyWorldMonitorCore.tsx` — Türkiye taktik GIS saha monitörü.
+- `src/components/SyDTSECore.tsx` — 7 aşamalı dijital ikiz/tarama arayüzü.
+- `src/components/SyFrameVisionAnalyzer.tsx` — çoklu medya anomali tespiti.
+- `src/components/SyHeritageGlobalCore.tsx` — küresel miras/harita modu.
+- `src/components/SyAgentSwarmDashboard.tsx` — çoklu ajan istihbarat paneli.
+- `src/components/SyMediaUpload.tsx` — toplu kanıt yükleme ve analiz.
+- `src/data/SyEcosystemDashboard.tsx` — sistem/ekosistem durum panosu.
+- `src/kasif_asistan.tsx` — KÂŞİF sesli/metinli asistan bileşeni.
+- `src/services/aiService.ts` — `/api/chat` için istemci sarmalayıcısı.
+- `api/chat.ts`, `api/vision.ts` — Cloudflare Workers AI'a vekillik eden
+  güvenli sunucu tarafı uç noktaları (gizli anahtarlar burada kalır).

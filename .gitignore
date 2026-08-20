@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Gizli anahtarlar - asla commit edilmemeli
+.env
+.env.local
+.env.*.local
+.vercel

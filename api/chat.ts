@@ -20,13 +20,27 @@ export default async function handler(req: Request) {
     });
   }
 
+  // GUVENLIK: Hesap ID'si ve API token'i ASLA kaynak kodda sabit (hardcoded) tutulmaz.
+  // Sadece sunucu tarafi ortam degiskenlerinden okunur. Degiskenler tanimli degilse
+  // istek 500 ile reddedilir; hicbir zaman varsayilan/gizli bir token'a dusulmez.
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_AI_TOKEN;
+
+  if (!accountId || !apiToken) {
+    return new Response(
+      JSON.stringify({
+        error:
+          'Sunucu yapılandırması eksik: CLOUDFLARE_ACCOUNT_ID ve CLOUDFLARE_AI_TOKEN ortam değişkenlerini Vercel proje ayarlarında (Environment Variables) tanımlayın.',
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
   try {
     const body = (await req.json()) as { prompt?: string; screenContext?: string };
     const prompt = body?.prompt || 'Durum analizi yap';
     const screenContext = body?.screenContext || 'Telemetri aktif.';
 
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || 'ecf60f8138ddbbb17930f0e15e83201e';
-    const apiToken = process.env.CLOUDFLARE_AI_TOKEN || 'cfut_zEGHAWJ0owbJuTihPdXYfnlkMywNrDXD5PWhHXf0cc7231f3';
     const model = '@cf/meta/llama-3.1-8b-instruct';
 
     const systemPrompt = `Sen KÂŞİF adlı profesyonel bir saha ve telemetri yapay zeka asistanısın.
@@ -52,6 +66,14 @@ ${screenContext}`;
         }),
       }
     );
+
+    if (!cfResponse.ok) {
+      const hataMetni = await cfResponse.text().catch(() => '');
+      return new Response(
+        JSON.stringify({ error: `Cloudflare AI hatası (${cfResponse.status}): ${hataMetni || 'bilinmeyen hata'}` }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const data: any = await cfResponse.json();
 

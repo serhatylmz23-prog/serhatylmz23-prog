@@ -16,6 +16,20 @@ export interface SwarmAnalysisResult {
   sealHash: string;
 }
 
+// Bir blob:/http(s):/data: URL'sini base64 data URI'ye cevirir. Boylece hem
+// kullanicinin yukledigi lokal dosyalar (blob:) hem de yapistirilan harici
+// linkler ayni sekilde sunucuya gonderilebilir.
+async function medyaUrlToBase64(url: string): Promise<string> {
+  const yanit = await fetch(url);
+  const blob = await yanit.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 export const runSyKasifSwarm = async (
   mediaDataUri: string,
   gpsCoords?: { lat: number; lng: number }
@@ -34,35 +48,25 @@ Görseli en ince detayına kadar çapraz doğrula ve net bir nihai hüküm çık
 `;
 
   try {
-    const apiKey = (import.meta as any).env?.VITE_AI_API_KEY || '';
+    // GUVENLIK: Onceki surumde OpenAI API anahtari (VITE_AI_API_KEY) tarayici
+    // tarafinda tutuluyor ve dogrudan api.openai.com'a gonderiliyordu. Bu, herhangi
+    // bir kullanicinin Gelistirici Araclari > Network sekmesinden anahtari
+    // calabilecegi anlamina geliyordu. Artik istek, gizli anahtarin sadece
+    // sunucuda kaldigi /api/vision uc noktasina yapiliyor (bkz. api/vision.ts).
+    const base64Gorsel = await medyaUrlToBase64(mediaDataUri);
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('/api/vision', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: 'Sen SyKaşif Arkeometri, Jeoloji ve Astronomi Çapraz Analiz Merkezisin.'
-          },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: mediaDataUri } }
-            ]
-          }
-        ],
-        temperature: 0.2
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, imageBase64: base64Gorsel }),
     });
 
-    const data = await response.json();
-    const rawText = data.choices?.[0]?.message?.content || 'Analiz motorundan yanıt alınamadı.';
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || data.error) {
+      throw new Error(data?.error || 'Vision servisine ulaşılamadı');
+    }
+
+    const rawText: string = data.response || 'Analiz motorundan yanıt alınamadı.';
 
     return {
       isManMade: !rawText.toLowerCase().includes('tamamen doğal erozyon'),

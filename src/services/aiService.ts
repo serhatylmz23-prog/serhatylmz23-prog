@@ -1,27 +1,25 @@
+// NOT: Bu servis eskiden dogrudan halka acik "text.pollinations.ai" servisine
+// istek atiyordu; bu hem projenin kendi Cloudflare/Vercel altyapisiyla tutarsizdi
+// hem de guvenilirligi/gizliligi belirsiz ucuncu parti bir servise bagimliydi.
+// Artik projenin kendi guvenli sunucu tarafi uc noktasi olan /api/chat'i kullaniyor
+// (bkz. api/chat.ts). Gizli anahtarlar sadece sunucuda kalir, tarayiciya hic gitmez.
 export async function askKasifAI(prompt: string, screenContext?: string): Promise<string> {
-  const systemPrompt = `Sen KÂŞİF adlı profesyonel bir saha ve telemetri yapay zeka asistanısın.
-Görevin ekrandaki telemetri ve radar verilerini analiz edip kullanıcıya net, doğrudan ve öz Türkçe ile yanıt vermektir (maksimum 2 kısa cümle).
-
-Canlı Telemetri:
-${screenContext || 'Telemetri verisi okunuyor.'}`;
-
   try {
-    const response = await fetch('https://text.pollinations.ai/', {
+    const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
-        ],
-        model: 'openai',
-        seed: 42
-      })
+      body: JSON.stringify({ prompt, screenContext }),
     });
 
-    if (!response.ok) throw new Error('AI servisine ulaşılamadı');
-    const data = await response.text();
-    return data.trim();
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data) {
+      throw new Error(data?.error || 'AI servisine ulaşılamadı');
+    }
+
+    if (data.error) throw new Error(data.error);
+
+    return (data.response || '').trim() || 'Analiz tamamlandı ancak sonuç boş döndü.';
   } catch (error) {
     console.error('Kâşif AI Hatası:', error);
     return 'Telemetri analiz edildi. Hedef sinyali kararlı görünüyor efendim.';

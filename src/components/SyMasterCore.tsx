@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { SyMediaVerificationCore } from './SyMediaVerificationCore';
+import { askKasifAI } from '../services/aiService';
 
 interface Ajan {
   id: string;
@@ -138,9 +139,14 @@ export const SyMasterCore: React.FC = () => {
         setAsistanCevabi('Günümüz vektörel harita katmanı açıldı.');
         konus('Günümüz harita katmanı açıldı.');
       } else {
-        const cevap = `Komutunuz işlendi: ${komut}.`;
-        setAsistanCevabi(cevap);
-        konus(cevap);
+        // Önceki sürümde tanınmayan her komut, gerçekten işlenmeden sadece
+        // kullanıcıya geri okunuyordu ("Komutunuz işlendi: ..."). Artık
+        // tanınmayan komutlar gerçek KÂŞİF AI servisine (/api/chat) gönderiliyor.
+        setAsistanCevabi('Düşünüyor...');
+        askKasifAI(komut, `Seçili il: ${seciliIl}, Harita: ${haritaTipi}, Hava: ${havaDurumu}`).then((cevap) => {
+          setAsistanCevabi(cevap);
+          konus(cevap);
+        });
       }
     };
 

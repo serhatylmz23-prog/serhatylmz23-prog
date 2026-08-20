@@ -1,9 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { SyMasterCore } from './components/SyMasterCore';
+import { SyAppShell } from './components/SyAppShell';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <SyMasterCore />
+    <SyAppShell />
   </React.StrictMode>
 );
