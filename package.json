@@ -1,10 +1,15 @@
+"scripts": {
+  "start:proxy": "node local-proxy.js",
+  "dev": "vite --host --port 5173",
+  "dev:all": "concurrently \"npm run start:proxy\" \"npm run dev\""
+}
 {
   "name": "sykasif_doga",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite --host --port 5173",
     "build": "vite build",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
@@ -25,6 +30,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^6.0.4",
+    "concurrently": "^10.0.5",
     "oxlint": "^1.75.0",
     "typescript": "^5.7.3",
     "vite": "^8.2.0"
