@@ -1,4 +1,8 @@
-// api/cloudflare-proxy.js (güncellenmiş, deploy için)
+  // after building forwardHeaders
+  console.log('AUTH_HEADER_SET:', !!forwardHeaders['Authorization']);
+  console.log('FORWARD_HEADERS_KEYS:', Object.keys(forwardHeaders));
+
+  // api/cloudflare-proxy.js (güncellenmiş, deploy için)
 async function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
