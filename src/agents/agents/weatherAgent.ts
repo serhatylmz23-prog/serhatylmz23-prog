@@ -24,7 +24,7 @@ export const weatherAgent: SyAgent = {
   },
 
   async run(
-    context: AgentContext
+    _context: AgentContext
   ): Promise<AgentResult> {
     const startedAt =
       new Date().toISOString();

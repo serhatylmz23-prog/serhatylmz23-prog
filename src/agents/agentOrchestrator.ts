@@ -1,6 +1,6 @@
 import {
   getAllAgents,
-} from './agentRegistry';
+} from './agents/agentRegistry';
 
 import type {
   AgentContext,

@@ -1,4 +1,4 @@
-import type { ... } from '../agentTypes';
+import type { AgentId, SyAgent } from '../agentTypes';
 
 import { geologyAgent } from './geologyAgent';
 

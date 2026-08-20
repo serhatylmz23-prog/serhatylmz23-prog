@@ -1,9 +1,12 @@
+import { useState } from 'react';
+
 import {
   SyProvider,
   useSyContext,
 } from './context/SyContext';
 
 import { SyMap } from './SyMap';
+import { SyClassicConsole } from './SyClassicConsole';
 
 interface LayerDefinition {
   id: string;
@@ -566,34 +569,101 @@ function Sidebar() {
   );
 }
 
-export function SyAppShell() {
-  return (
-    <SyProvider>
-      <div
-        style={{
-          display: 'flex',
-          width: '100vw',
-          height: '100vh',
-          overflow: 'hidden',
-          fontFamily:
-            'Inter, Arial, sans-serif',
-          backgroundColor:
-            '#020617',
-        }}
-      >
-        <Sidebar />
+type SyMod = 'HARITA' | 'KLASIK';
 
-        <main
+function ModSwitcher({
+  mod,
+  setMod,
+}: {
+  mod: SyMod;
+  setMod: (mod: SyMod) => void;
+}) {
+  const secenekler: { id: SyMod; ad: string }[] = [
+    { id: 'HARITA', ad: '🗺️ Harita & Ajanlar' },
+    { id: 'KLASIK', ad: '⚜️ Klasik Konsol' },
+  ];
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 12,
+        right: 20,
+        zIndex: 2000,
+        display: 'flex',
+        gap: '4px',
+        padding: '4px',
+        borderRadius: '8px',
+        backgroundColor: 'rgba(2,6,23,0.92)',
+        border: '1px solid rgba(148,163,184,0.25)',
+      }}
+    >
+      {secenekler.map((secenek) => (
+        <button
+          key={secenek.id}
+          type="button"
+          onClick={() => setMod(secenek.id)}
           style={{
-            flex: 1,
-            minWidth: 0,
-            height: '100vh',
-            overflow: 'hidden',
+            padding: '6px 10px',
+            borderRadius: '6px',
+            border: 'none',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            color: mod === secenek.id ? '#0B1120' : '#CBD5E1',
+            backgroundColor: mod === secenek.id ? '#38BDF8' : 'transparent',
           }}
         >
-          <SyMap />
-        </main>
-      </div>
+          {secenek.ad}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function SyAppShell() {
+  // Proje iki farklı ara yüz olarak geliştirildi:
+  //  - HARITA: yeni Leaflet tabanlı harita + çoklu ajan orkestrasyon sistemi
+  //  - KLASIK: projenin ilk sürümündeki sekmeli/panelli operasyon konsolu
+  // İkisi de tam işlevsel olduğu ve hiçbiri diğerini geçersiz kılmadığı için
+  // hiçbirini silmek yerine aralarında geçiş yapılabilen bir anahtar eklendi.
+  const [mod, setMod] = useState<SyMod>('HARITA');
+
+  return (
+    <SyProvider>
+      <ModSwitcher mod={mod} setMod={setMod} />
+
+      {mod === 'KLASIK' ? (
+        <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+          <SyClassicConsole />
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            width: '100vw',
+            height: '100vh',
+            overflow: 'hidden',
+            fontFamily:
+              'Inter, Arial, sans-serif',
+            backgroundColor:
+              '#020617',
+          }}
+        >
+          <Sidebar />
+
+          <main
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: '100vh',
+              overflow: 'hidden',
+            }}
+          >
+            <SyMap />
+          </main>
+        </div>
+      )}
     </SyProvider>
   );
 }

@@ -40,7 +40,6 @@ export function SyMap() {
   addAlert,
   setSystemStatus,
 
-  setAgentStatus,
   applyAgentResults,
   setAnalysisRunning,
   setAnalysisResult,
