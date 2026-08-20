@@ -1,7 +1,4 @@
-// api/cloudflare-proxy.js
-// Basit, güvenli bir proxy: frontend'ten gelen istekleri Cloudflare API'ine iletir.
-// NOT: Bu kod örnektir — production'da ekstra rate-limit, auth ve input validation eklemelisiniz.
-
+// api/cloudflare-proxy.js (güncellenmiş, deploy için)
 async function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -13,33 +10,42 @@ async function readRawBody(req) {
 
 export default async function handler(req, res) {
   const token = process.env.CLOUDFLARE_AI_TOKEN;
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || '';
+
+  // DEBUG: token var mı ve uzunluğu (token'ı asla loglama)
+  console.log('TOKEN_PRESENT:', !!token);
+  console.log('TOKEN_LENGTH:', token ? token.length : 0);
 
   if (!token) {
     return res.status(500).json({ error: 'Missing Cloudflare token on server' });
   }
 
-  // Güvenlik: yalnızca izin verdiğiniz Cloudflare yollarına izin verin
+  // güvenli path çıkarımı
+  const prefix = '/api/cloudflare-proxy';
+  let rawUrl = req.url || '/';
+  // bazı ortamlarda req.url query ile geliyor; sadece pathname'i elde etmeye çalış:
+  const path = rawUrl.startsWith(prefix) ? rawUrl.slice(prefix.length) || '/' : rawUrl;
+
+  // izin verilen prefixler
   const allowedPrefixes = [
     '/accounts',
     '/zones',
     '/workers',
-    '/accounts/' + (accountId || '')
+    `/accounts/${accountId}`
   ];
-  const path = (req.url || '').replace(/^\/api\/cloudflare-proxy/, '') || '/';
   if (!allowedPrefixes.some(p => path === p || path.startsWith(p + '/'))) {
-    return res.status(400).json({ error: 'Path not allowed' });
+    console.log('Path not allowed:', path);
+    return res.status(400).json({ error: 'Path not allowed', path });
   }
 
   const target = `https://api.cloudflare.com/client/v4${path}`;
+  console.log('Forward target:', target);
 
-  // Hazır header'lar (istek içeriğine göre Content-Type ekliyoruz)
   const forwardHeaders = {
     Authorization: `Bearer ${token}`,
   };
   if (req.headers['content-type']) forwardHeaders['Content-Type'] = req.headers['content-type'];
 
-  // Gövdeyi oku (GET/HEAD için gövde yok)
   let body;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     const raw = await readRawBody(req);
@@ -50,10 +56,10 @@ export default async function handler(req, res) {
     const cfRes = await fetch(target, {
       method: req.method,
       headers: forwardHeaders,
-      body
+      body,
     });
 
-    // Başlıkları kopyala (hop-by-hop başlıkları atla)
+    // forward non-hop-by-hop headers
     cfRes.headers.forEach((value, key) => {
       const hopByHop = ['connection','keep-alive','transfer-encoding','upgrade','proxy-authorization','proxy-authenticate','te'];
       if (!hopByHop.includes(key.toLowerCase())) {
@@ -63,13 +69,7 @@ export default async function handler(req, res) {
 
     const text = await cfRes.text();
     res.status(cfRes.status);
-    // Eğer JSON görünüyorsa JSON olarak gönder
-    try {
-      const json = JSON.parse(text);
-      return res.json(json);
-    } catch {
-      return res.send(text);
-    }
+    try { return res.json(JSON.parse(text)); } catch { return res.send(text); }
   } catch (err) {
     console.error('Proxy error:', err);
     return res.status(502).json({ error: 'Bad gateway', details: err.message });
