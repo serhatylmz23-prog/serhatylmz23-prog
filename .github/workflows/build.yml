@@ -1,0 +1,26 @@
+name: Build and Deploy (example)
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        env:
+          VITE_SYKASIF_RUNTIME_URL: "https://sykasif-id.serhatylmz23.workers.dev"
+          AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+        run: npm run build
+
+      # gerekiyorsa deploy adımları buraya

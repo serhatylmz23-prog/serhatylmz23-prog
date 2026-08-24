@@ -29,8 +29,9 @@ async function recognizeAzureOnce(): Promise<string> {
   const token = await getSpeechToken();
   // The SDK is an optional runtime dependency; keep the browser fallback working
   // even when its type declarations are not installed.
-  // @ts-expect-error Optional Azure Speech SDK may not have local declarations.
-  const SpeechSDK = await import('microsoft-cognitiveservices-speech-sdk');
+  const SpeechSDK = (await import(
+    'microsoft-cognitiveservices-speech-sdk'
+  )) as any;
   const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(
     token.token,
     token.region
@@ -103,7 +104,6 @@ function recognizeWithBrowser(): Promise<string> {
 export async function speakTurkishFemale(text: string): Promise<'azure' | 'browser'> {
   try {
     const token = await getSpeechToken();
-    // @ts-expect-error Optional Azure Speech SDK may not have local declarations.
     const SpeechSDK = await import('microsoft-cognitiveservices-speech-sdk');
     const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(
       token.token,

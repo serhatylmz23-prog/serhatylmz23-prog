@@ -1,0 +1,5 @@
+name = "sykasif-runtime"
+account_id = "CLOUDFLARE_ACCOUNT_ID=ecf60f8138ddbbb17930f0e15e83201e"
+workers_dev = true
+compatibility_date = "2026-08-22"
+main = "index.js"
