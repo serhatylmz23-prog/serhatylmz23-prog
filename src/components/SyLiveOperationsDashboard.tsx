@@ -34,12 +34,12 @@ export function SyLiveOperationsDashboard() {
             SYKAŞİF CANLI KÜRESEL OPERASYON
           </h2>
           <div style={{ marginTop: '4px', color: '#94A3B8', fontSize: '.72rem' }}>
-            USGS • NASA EONET • GDACS • Dinamik olay ajanları
+            USGS Küresel Deprem Kataloğu • NASA Dünya Doğal Olaylar Ağı • GDACS Küresel Afet Bildirimleri • Dinamik olay ajanları
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ color: connected ? '#4ADE80' : '#FBBF24', fontSize: '.72rem' }}>
-            ● {connected ? 'SSE CANLI' : 'POLLING'}
+            ● {connected ? 'SSE CANLI' : 'PERİYODİK TARAMA / CANLI'}
           </span>
           <button type="button" onClick={() => void refresh()} disabled={loading}>
             {loading ? 'Senkronize ediliyor…' : 'Şimdi yenile'}

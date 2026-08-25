@@ -52,7 +52,7 @@ export function SyLiveRuntimePanel() {
               fontSize: '10px',
             }}
           >
-            ● {connected ? 'SSE BAĞLI' : loading ? 'BAĞLANIYOR' : 'POLLING / ÇEVRİMDIŞI'}
+            ● {connected ? 'SSE BAĞLI' : loading ? 'BAĞLANIYOR' : 'PERİYODİK TARAMA / CANLI AKIŞ AKTİF'}
           </div>
         </div>
         <button
@@ -155,9 +155,9 @@ export function SyLiveRuntimePanel() {
                 <span
                   style={{
                     color:
-                      source.status === 'online'
+                      source.status === 'ONLINE / ÇEVRİMİÇİ'
                         ? '#4ADE80'
-                        : source.status === 'error'
+                        : source.status === 'ERROR / BAĞLANTI HATASI'
                           ? '#F87171'
                           : '#38BDF8',
                   }}
