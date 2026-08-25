@@ -85,12 +85,13 @@ export const EMPTY_LIVE_SNAPSHOT: LiveSnapshot = {
   },
 };
 
-function runtimeBaseUrl(): string {
-  return (import.meta.env.VITE_SYKASIF_RUNTIME_URL || '').replace(/\/$/, '');
+export function runtimeBaseUrl(): string {
+  const envUrl = (import.meta.env.VITE_SYKASIF_RUNTIME_URL || '').replace(/\/$/, '');
+  return envUrl || 'https://sykasif-runtime.serhatylmz23.workers.dev';
 }
 
-export function runtimeUrl(path: string): string {
-  return `${runtimeBaseUrl()}${path}`;
+function runtimeUrl(path: string): string {
+  return runtimeBaseUrl() + path;
 }
 
 export async function getLiveSnapshot(): Promise<LiveSnapshot> {
