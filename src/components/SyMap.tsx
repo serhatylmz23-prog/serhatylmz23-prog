@@ -197,8 +197,7 @@ export function SyMap() {
       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       {
         maxZoom: 19,
-        attribution:
-          '&copy; OpenStreetMap katkıcıları',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">Açık Sokak Haritası </a> Katkıda Bulunanlar | SyKaşif Harita Katmanı',
       }
     );
 
