@@ -211,6 +211,70 @@ async function publish(env: Env, snapshot: unknown): Promise<void> {
     body: JSON.stringify(snapshot),
   });
 }
+async function fetchSpaceWeatherEvents(): Promise<RuntimeEvent[]> {
+  try {
+    const res = await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
+    if (!res.ok) return [];
+    const data = (await res.json()) as string[][];
+    if (data.length < 2) return [];
+
+    const latest = data[data.length - 1];
+    const kpVal = parseFloat(latest[1]) || 0;
+    const timeTag = latest[0];
+
+    return [{
+      id: `noaa:geomagnetic-kp-${timeTag}`,
+      sourceId: 'noaa-space-weather',
+      category: 'space-weather',
+      title: `Jeomanyetik Kp İndeksi: ${kpVal}`,
+      summary: `Küresel Kp İndeksi: ${kpVal}. ${kpVal >= 5 ? 'Jeomanyetik fırtına seviyesinde (GPS/Radyo etkilenebilir).' : 'Sakin/Normal seviyede.'}`,
+      severity: kpVal >= 5 ? 'high' : 'low',
+      lat: 0,
+      lng: 0,
+      observedAt: new Date(timeTag).toISOString(),
+      url: 'https://www.swpc.noaa.gov/',
+      data: { kpIndex: kpVal },
+    }];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchUsgsEvents(): Promise<RuntimeEvent[]> {
+  try {
+    const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson', {
+      headers: { Accept: 'application/json', 'User-Agent': 'SyKasif-Runtime/0.2' },
+    });
+    if (!res.ok) return [];
+    return normalizeEarthquakes(await res.json());
+  } catch {
+    return [];
+  }
+}
+
+async function fetchNasaEvents(): Promise<RuntimeEvent[]> {
+  try {
+    const res = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100', {
+      headers: { Accept: 'application/json', 'User-Agent': 'SyKasif-Runtime/0.2' },
+    });
+    if (!res.ok) return [];
+    return normalizeEonet(await res.json());
+  } catch {
+    return [];
+  }
+}
+
+async function fetchGdacsEvents(): Promise<RuntimeEvent[]> {
+  try {
+    const res = await fetch('https://www.gdacs.org/gdacsapi/api/events/geteventlist/EVENTS4APP', {
+      headers: { Accept: 'application/json', 'User-Agent': 'SyKasif-Runtime/0.2' },
+    });
+    if (!res.ok) return [];
+    return normalizeGdacs(await res.json());
+  } catch {
+    return [];
+  }
+}
 
 async function syncSources(env: Env): Promise<void> {
   const runId = crypto.randomUUID();
@@ -524,6 +588,12 @@ export class LiveHub {
     if (url.pathname === '/publish' && request.method === 'POST') {
       const snapshot = await request.text();
       const message = this.encoder.encode(`event: snapshot\ndata: ${snapshot}\n\n`);
+      const fetched = await Promise.allSettled([
+  fetchGdacsEvents(),
+  fetchNasaEvents(),
+  fetchUsgsEvents(),
+  fetchSpaceWeatherEvents(),
+]);
       await Promise.allSettled(
         [...this.clients].map(async (writer) => {
           try {
