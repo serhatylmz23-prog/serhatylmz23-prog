@@ -3,3 +3,34 @@ account_id = "CLOUDFLARE_ACCOUNT_ID=ecf60f8138ddbbb17930f0e15e83201e"
 workers_dev = true
 compatibility_date = "2026-08-22"
 main = "index.js"
+
+
+
+
+  "binding": "sykasif_runtime",
+      "database_name": "sykasif-runtime",
+      "database_id": "4e06e738-aae8-4145-bdd5-845d09157227"
+
+
+
+
+
+PS D:\sykasif_ozeluclu - Kopya (2)> notepad "cloudflare\runtime-worker\src\index.ts"
+PS D:\sykasif_ozeluclu - Kopya (2)> cd cloudflare/runtime-worker
+PS D:\sykasif_ozeluclu - Kopya (2)\cloudflare\runtime-worker> npx wrangler deploy --config wrangler.toml
+
+ ⛅️ wrangler 4.125.0
+Total Upload: 15.88 KiB / gzip: 4.88 KiB
+Your Worker has access to the following bindings:
+Binding                                                          Resource                  
+env.LIVE_HUB (LiveHub)                                           Durable Object            
+env.DB (sykasif-runtime)                                         D1 Database               
+env.APP_ORIGIN ("https://sykasif-ozeluclu.vercel.app,h...")      Environment Variable      
+
+Uploaded sykasif-runtime (11.36 sec)
+Deployed sykasif-runtime triggers (6.37 sec)
+  https://sykasif-runtime.serhatylmz23.workers.dev
+  schedule: */5 * * * *
+Current Version ID: 932b3bc4-f93b-4717-8af3-a11e90eb3913
+PS D:\sykasif_ozeluclu - Kopya (2)\cloudflare\runtime-worker> cd ../..
+PS D:\sykasif_ozeluclu - Kopya (2)> 

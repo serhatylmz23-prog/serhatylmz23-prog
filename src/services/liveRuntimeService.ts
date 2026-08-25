@@ -90,12 +90,8 @@ export function runtimeBaseUrl(): string {
   return envUrl || 'https://sykasif-runtime.serhatylmz23.workers.dev';
 }
 
-function runtimeUrl(path: string): string {
-  return runtimeBaseUrl() + path;
-}
-
 export async function getLiveSnapshot(): Promise<LiveSnapshot> {
-  const response = await fetch(runtimeUrl('/api/runtime/snapshot'), {
+  const response = await fetch(`${runtimeBaseUrl()}/api/runtime/snapshot`, {
     headers: { Accept: 'application/json' },
   });
   if (!response.ok) {
@@ -105,7 +101,7 @@ export async function getLiveSnapshot(): Promise<LiveSnapshot> {
 }
 
 export async function forceLiveSync(): Promise<LiveSnapshot> {
-  const response = await fetch(runtimeUrl('/api/runtime/sync'), {
+  const response = await fetch(`${runtimeBaseUrl()}/api/runtime/sync`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -119,9 +115,7 @@ export async function decideApproval(
   decision: 'approved' | 'rejected'
 ): Promise<void> {
   const response = await fetch(
-    runtimeUrl(
-      `/api/runtime/approvals/${encodeURIComponent(id)}/${decision}`
-    ),
+    `${runtimeBaseUrl()}/api/runtime/approvals/${encodeURIComponent(id)}/${decision}`,
     {
       method: 'POST',
       headers: {
@@ -139,7 +133,7 @@ export function openLiveStream(
   onSnapshot: (snapshot: LiveSnapshot) => void,
   onError: () => void
 ): EventSource {
-  const source = new EventSource(runtimeUrl('/api/runtime/stream'));
+  const source = new EventSource(`${runtimeBaseUrl()}/api/runtime/stream`);
   const events = [
     'snapshot',
     'sync-start',

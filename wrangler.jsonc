@@ -1,0 +1,18 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "sykasif-ozeluclu",
+	"compatibility_date": "2026-08-20",
+	"observability": {
+		"enabled": true
+	},
+	"assets": {
+		"not_found_handling": "single-page-application"
+	},
+	"d1_databases": [
+		{
+			"binding": "sykasif_runtime",
+			"database_name": "sykasif-runtime",
+			"database_id": "4e06e738-aae8-4145-bdd5-845d09157227"
+		}
+	]
+}

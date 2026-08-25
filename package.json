@@ -10,12 +10,13 @@
     "build": "vite build",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.api.json",
-    "preview": "vite preview",
+    "preview": "npm run build && wrangler dev",
     "start:api": "node local-api.js",
     "test": "node --test",
     "twin:up": "docker compose -f infrastructure/local-twin/docker-compose.yml up -d",
     "twin:down": "docker compose -f infrastructure/local-twin/docker-compose.yml down",
-    "twin:logs": "docker compose -f infrastructure/local-twin/docker-compose.yml logs -f nodeodm"
+    "twin:logs": "docker compose -f infrastructure/local-twin/docker-compose.yml logs -f nodeodm",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
@@ -25,6 +26,8 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.53.1",
+    "@cloudflare/workerd-windows-64": "^1.20260825.1",
     "@types/leaflet": "^1.9.22",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.2.0",
@@ -36,6 +39,7 @@
     "express": "^5.2.1",
     "oxlint": "^1.75.0",
     "typescript": "^5.7.3",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "wrangler": "^4.125.0"
   }
 }

@@ -432,7 +432,7 @@ async function handleRequest(
       headers,
     });
   }
-  if (request.method === 'POST' && url.pathname === '/api/runtime/sync') {
+  if ((request.method === 'POST' || request.method === 'GET') && url.pathname === '/api/runtime/sync') {
     const latest = await env.DB.prepare(
       'SELECT started_at as startedAt FROM sync_runs ORDER BY started_at DESC LIMIT 1'
     ).first<{ startedAt: string }>();
