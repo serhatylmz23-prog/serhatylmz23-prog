@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import { handleChat, handleVision } from './api/cloudflare-ai.js';
 import { handleSpeechToken } from './api/azure-speech.js';
+import { handleSystemStatus } from './api/system-status.js';
+import { handleSkyfiSearch } from './api/skyfi.js';
 import {
   createLiveRuntime,
   registerLiveRuntimeRoutes,
@@ -60,7 +62,32 @@ app.all('/api/vision', (req, res) => runHandler(req, res, handleVision));
 app.all('/api/speech/token', (req, res) =>
   runHandler(req, res, handleSpeechToken)
 );
-app.get('/health', (_req, res) =>
+app.all('/api/system-status', (req, res) =>
+  runHandler(req, res, handleSystemStatus)
+);
+app.all('/api/skyfi', (req, res) => runHandler(req, res, handleSkyfiSearch));
+app.get('/health', (_req, res) => {
+  // NOT: CLOUDFLARE_AI_TOKEN yerine CLOUDFLARE_API_TOKEN kullanan
+  // dağıtımlarla tutarlı olsun diye ikisi de kabul edilir
+  // (bkz. api/cloudflare-ai.js#cloudflareApiToken()).
+  const hasCloudflare = Boolean(
+    process.env.CLOUDFLARE_ACCOUNT_ID &&
+      (process.env.CLOUDFLARE_AI_TOKEN || process.env.CLOUDFLARE_API_TOKEN)
+  );
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY);
+  const hasOllama = Boolean(
+    process.env.OLLAMA_BASE_URL || process.env.OLLAMA_ENABLED === 'true'
+  );
+
+  // AI sağlayıcı öncelik sırası: Cloudflare → Gemini → Ollama → offline.
+  const aiProvider = hasCloudflare
+    ? 'cloudflare'
+    : hasGemini
+      ? 'gemini'
+      : hasOllama
+        ? 'ollama'
+        : 'offline';
+
   res.json({
     status: 'ok',
     liveRuntime: true,
@@ -68,8 +95,10 @@ app.get('/health', (_req, res) =>
     azureSpeechConfigured: Boolean(
       process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION
     ),
-  })
-);
+    aiProvider,
+    aiConfigured: hasCloudflare || hasGemini,
+  });
+});
 
 app.use((_req, res) => res.status(404).json({ error: 'Uç nokta bulunamadı.' }));
 app.use((error, _req, res, _next) => {
