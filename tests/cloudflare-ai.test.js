@@ -51,7 +51,7 @@ test('chat başarılı Cloudflare yanıtını normalize eder', async () => {
 
   const response = await handleChat(request('/api/chat', { prompt: 'Durum?' }));
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { response: 'Hazır.' });
+  assert.deepEqual(await response.json(), { response: 'Hazır.', provider: 'cloudflare' });
 });
 
 test('chat boş promptu reddeder', async () => {

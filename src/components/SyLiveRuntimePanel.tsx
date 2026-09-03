@@ -5,92 +5,165 @@ interface LayerGroup {
   items: { id: string; label: string; active: boolean; icon?: string }[];
 }
 
-export const SyLiveRuntimePanel: React.FC = () => {
-  const [layers, setLayers] = useState<LayerGroup[]>([
-    {
-      title: 'HARİTA TEMEL KATMANLARI',
-      items: [
-        { id: 'topo', label: 'Topografya & Yükseklik', active: true },
-        { id: 'geology', label: 'Jeolojik Katmanlar & Faylar', active: true },
-        { id: 'hydro', label: 'Hidrografya (Su/Akarsu)', active: false },
-        { id: 'flora', label: 'Bitki Örtüsü / NDVI', active: false },
-        { id: 'satellite', label: 'Yüksek Çözünürlüklü Uydu', active: true },
-        { id: 'transport', label: 'Ulaşım & Yol Ağları', active: false },
-      ]
-    },
-    {
-      title: 'JEOLOJİ & YERALTI ANALİZİ',
-      items: [
-        { id: 'gpr', label: 'GPR (Yeraltı Radarı)', active: false },
-        { id: 'ert', label: 'Elektrik Direnç (ERT)', active: false },
-        { id: 'mag', label: 'Manyetik & Gravite Anomalisi', active: true },
-        { id: 'seismic', label: 'Sismik Hareketlilik (USGS/AFAD)', active: true },
-        { id: 'thermal', label: 'Termal & Spektral Anomali (NASA)', active: true },
-        { id: 'cavity', label: 'Boşluk & Yeraltı Yapıları', active: false },
-      ]
-    },
-    {
-      title: 'TARİH & ARKEOLOJİ KATMANI',
-      items: [
-        { id: 'settlements', label: 'Antik Yerleşimler & Höyükler', active: true },
-        { id: 'tumulus', label: 'Tümülüs & Kaya Mezarları', active: false },
-        { id: 'roads', label: 'Tarihi Yol Ağları', active: false },
-        { id: 'excavation', label: 'Kazı Alanları & Buluntular', active: false },
-      ]
-    },
-    {
-      title: 'CİHAZ VE SENSÖR EKOSİSTEMİ',
-      items: [
-        { id: 'gps_rtk', label: 'GPS / RTK Santimetre Hassasiyet', active: true },
-        { id: 'drone', label: 'Mikro Drone Telemetrisi', active: false },
-        { id: 'snake_cam', label: 'Yılan Kamera (Wi-Fi/BT)', active: false },
-        { id: 'space_weather', label: 'Uzay Havası & Jeomanyetik Kp', active: true },
-      ]
-    }
-  ]);
+// NOT: Bu dosya Tailwind CSS class'ları (className="flex bg-..." vb.) ile
+// yazılmıştı, ama bu projede Tailwind hiç kurulu değil (package.json'da
+// tailwindcss yok, tailwind.config.js yok). Bu yüzden bütün class'lar
+// tarayıcı tarafından sessizce yok sayılıyor ve panel biçimsiz/karışık
+// görünüyordu. Aşağıda projenin geri kalanıyla tutarlı olacak şekilde
+// inline style kullanıldı.
 
-  const [edsAlerts] = useState([
-    { id: '1', level: 'KRİTİK', text: 'Sismik Fay Hattı Yakınlığı: 12 km (Derinlik 8.4 km)', time: '17:35' },
-    { id: '2', level: 'BİLGİ', text: 'NASA FIRMS Termal Isı Taraması Aktif', time: '17:30' },
-    { id: '3', level: 'UYARI', text: 'Jeomanyetik Kp İndeksi: 2.3 (Sakin/Kararlı)', time: '17:20' }
-  ]);
+const renk = {
+  bg: '#0f172a',
+  panel: '#1e293b',
+  border: 'rgba(148, 163, 184, 0.15)',
+  cyan: '#38bdf8',
+  green: '#4ade80',
+  red: '#f87171',
+  amber: '#fbbf24',
+  textMuted: '#94a3b8',
+};
+
+const KATMAN_GRUPLARI: LayerGroup[] = [
+  {
+    title: 'HARİTA TEMEL KATMANLARI',
+    items: [
+      { id: 'topo', label: 'Topografya & Yükseklik', active: true },
+      { id: 'geology', label: 'Jeolojik Katmanlar & Faylar', active: true },
+      { id: 'hydro', label: 'Hidrografya (Su/Akarsu)', active: false },
+      { id: 'flora', label: 'Bitki Örtüsü / NDVI', active: false },
+      { id: 'satellite', label: 'Yüksek Çözünürlüklü Uydu', active: true },
+      { id: 'transport', label: 'Ulaşım & Yol Ağları', active: false },
+    ],
+  },
+  {
+    title: 'JEOLOJİ & YERALTI ANALİZİ',
+    items: [
+      { id: 'gpr', label: 'GPR (Yeraltı Radarı)', active: false },
+      { id: 'ert', label: 'Elektrik Direnç (ERT)', active: false },
+      { id: 'mag', label: 'Manyetik & Gravite Anomalisi', active: false },
+      { id: 'seismic', label: 'Sismik Hareketlilik (USGS)', active: true },
+      { id: 'thermal', label: 'Termal & Spektral Anomali', active: false },
+      { id: 'cavity', label: 'Boşluk & Yeraltı Yapıları', active: false },
+    ],
+  },
+  {
+    title: 'TARİH & ARKEOLOJİ KATMANI',
+    items: [
+      { id: 'settlements', label: 'Antik Yerleşimler & Höyükler', active: true },
+      { id: 'tumulus', label: 'Tümülüs & Kaya Mezarları', active: false },
+      { id: 'roads', label: 'Tarihi Yol Ağları', active: false },
+      { id: 'excavation', label: 'Kazı Alanları & Buluntular', active: false },
+    ],
+  },
+  {
+    title: 'CİHAZ VE SENSÖR EKOSİSTEMİ',
+    items: [
+      { id: 'gps_rtk', label: 'GPS / RTK Santimetre Hassasiyet', active: false },
+      { id: 'drone', label: 'Mikro Drone Telemetrisi', active: false },
+      { id: 'snake_cam', label: 'Yılan Kamera (Wi-Fi/BT)', active: false },
+    ],
+  },
+];
+
+export const SyLiveRuntimePanel: React.FC = () => {
+  const [layers, setLayers] = useState<LayerGroup[]>(KATMAN_GRUPLARI);
 
   const toggleLayer = (groupIndex: number, itemIndex: number) => {
-    const updated = [...layers];
-    updated[groupIndex].items[itemIndex].active = !updated[groupIndex].items[itemIndex].active;
+    const updated = layers.map((g, gi) =>
+      gi !== groupIndex
+        ? g
+        : {
+            ...g,
+            items: g.items.map((it, ii) =>
+              ii !== itemIndex ? it : { ...it, active: !it.active },
+            ),
+          },
+    );
     setLayers(updated);
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-900/95 text-slate-100 p-3 space-y-4 overflow-y-auto text-xs font-sans">
-      {/* Sistem Durumu */}
-      <div className="border border-emerald-500/40 bg-emerald-950/20 p-2.5 rounded">
-        <div className="flex items-center justify-between font-bold text-emerald-400">
-          <span>● SİSTEM DURUMU: AKTİF</span>
-          <span className="text-[10px] bg-emerald-900/60 px-1.5 py-0.5 rounded">CANLI AKIŞ</span>
-        </div>
-        <p className="text-[11px] text-slate-300 mt-1">
-          Göksel OSINT, Sismoloji ve Sensör Hub devrede.
-        </p>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        backgroundColor: renk.bg,
+        color: '#e2e8f0',
+        padding: '12px',
+        gap: '12px',
+        overflowY: 'auto',
+        fontSize: '0.75rem',
+        fontFamily: 'inherit',
+      }}
+    >
+      {/* Panel amacı — dürüst açıklama */}
+      <div
+        style={{
+          fontSize: '0.62rem',
+          color: renk.textMuted,
+          backgroundColor: 'rgba(56, 189, 248, 0.08)',
+          border: `1px solid ${renk.border}`,
+          borderRadius: '6px',
+          padding: '6px 8px',
+        }}
+      >
+        Bu panel bir katman <strong>düzenleme taslağıdır</strong> — kutucuklar
+        yalnızca görsel bir işaretleme yapar, haritadaki gerçek veriye henüz
+        bağlı değildir. Gerçek tarama için "Harita & Ajanlar" sekmesindeki
+        "Gerçek Tarama" düğmesini kullan.
       </div>
 
       {/* Dinamik Katman Ağacı */}
-      <div className="space-y-3">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {layers.map((group, gIdx) => (
-          <div key={gIdx} className="bg-slate-800/60 border border-slate-700/60 rounded p-2">
-            <div className="font-bold text-sky-400 mb-2 tracking-wider text-[11px] border-b border-slate-700/40 pb-1">
+          <div
+            key={group.title}
+            style={{
+              backgroundColor: renk.panel,
+              border: `1px solid ${renk.border}`,
+              borderRadius: '8px',
+              padding: '8px 10px',
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                color: renk.cyan,
+                fontSize: '0.68rem',
+                letterSpacing: '0.03em',
+                borderBottom: `1px solid ${renk.border}`,
+                paddingBottom: '6px',
+                marginBottom: '6px',
+              }}
+            >
               {group.title}
             </div>
-            <div className="space-y-1.5">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {group.items.map((item, iIdx) => (
-                <label key={item.id} className="flex items-center space-x-2 cursor-pointer hover:bg-slate-700/30 p-1 rounded transition">
+                <label
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '5px 6px',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                  }}
+                >
                   <input
                     type="checkbox"
                     checked={item.active}
                     onChange={() => toggleLayer(gIdx, iIdx)}
-                    className="accent-sky-500 rounded cursor-pointer"
+                    style={{ accentColor: renk.cyan, cursor: 'pointer' }}
                   />
-                  <span className={item.active ? 'text-slate-100 font-medium' : 'text-slate-400'}>
+                  <span
+                    style={{
+                      color: item.active ? '#f1f5f9' : renk.textMuted,
+                      fontWeight: item.active ? 600 : 400,
+                    }}
+                  >
                     {item.label}
                   </span>
                 </label>
@@ -98,27 +171,6 @@ export const SyLiveRuntimePanel: React.FC = () => {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* EDS Bildirimleri */}
-      <div className="bg-red-950/20 border border-red-500/40 rounded p-2.5">
-        <div className="font-bold text-red-400 mb-2 flex items-center justify-between text-[11px]">
-          <span>EDS BİLDİRİM MERKEZİ</span>
-          <span className="text-[9px] bg-red-900/60 text-red-200 px-1 rounded">3 CANLI UYARI</span>
-        </div>
-        <div className="space-y-1.5">
-          {edsAlerts.map(alert => (
-            <div key={alert.id} className="bg-slate-800/80 p-1.5 rounded border border-slate-700 text-[11px]">
-              <div className="flex justify-between items-center">
-                <span className={`font-bold text-[10px] ${alert.level === 'KRİTİK' ? 'text-red-400' : alert.level === 'UYARI' ? 'text-amber-400' : 'text-sky-400'}`}>
-                  [{alert.level}]
-                </span>
-                <span className="text-[9px] text-slate-400">{alert.time}</span>
-              </div>
-              <div className="text-slate-200 mt-0.5">{alert.text}</div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
