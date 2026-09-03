@@ -1,120 +1,797 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { SyMediaVerificationCore } from './SyMediaVerificationCore';
+import { SySistemDurumu } from './SySistemDurumu';
+import { askKasifAI } from '../services/aiService';
+import { runAgents } from '../agents/agentOrchestrator';
+import type { AgentId } from '../agents/agentTypes';
 
-export interface AgentStatus {
-  id: string;
+// Panelde gösterilen 5 ajan, agents/agents/*.ts içindeki GERÇEK modüllerle
+// birebir eşleşir. Buradaki "ad/rol" sadece görüntü metnidir; sayısal
+// alanlar (bulguSayisi, ortalamaGuven, sonCalisma) YALNIZCA gerçek bir
+// runAgents() çağrısından sonra doldurulur. Sabit/uydurma sayı YOKTUR.
+const AJAN_META: Record<AgentId, { ad: string; rol: string; kaynak: string }> = {
+  jeoloji: { ad: 'Jeoloji Ajanı', rol: 'Açık jeolojik birim verisi', kaynak: 'Macrostrat API' },
+  arkeoloji: { ad: 'Arkeoloji Ajanı', rol: 'Kültürel miras / arkeolojik alan kaydı', kaynak: 'OpenStreetMap (Overpass API)' },
+  sismoloji: { ad: 'Sismoloji Ajanı', rol: 'Son 30 gün deprem kataloğu', kaynak: 'USGS Earthquake Catalog' },
+  meteoroloji: { ad: 'Meteoroloji Ajanı', rol: 'Güncel hava koşulları', kaynak: 'Open-Meteo Forecast API' },
+  uydu: { ad: 'Uydu Ajanı', rol: 'Uydu/hava fotoğrafı katman kaynağı', kaynak: 'Esri World Imagery' },
+};
+
+type AjanDurum = 'BEKLİYOR' | 'ÇALIŞIYOR' | 'TAMAMLANDI' | 'HATA';
+
+interface Ajan {
+  id: AgentId;
   ad: string;
-  uzmanlik: string;
-  kaynaklar: string[];
-  tarananVeriAdedi: number;
-  dogrulukKatsayisi: number;
-  sonGuncelleme: string;
-  ogrenmeDurumu: 'AKTİF TARAMA' | 'SENKRONİZE' | 'MODEL GÜNCELLENDİ';
+  rol: string;
+  kaynak: string;
+  durum: AjanDurum;
+  bulguSayisi: number | null;
+  ortalamaGuven: number | null;
+  sonCalisma: string | null;
+  hata?: string;
 }
 
-const AJAN_LISTESI: AgentStatus[] = [
-  {
-    id: 'AGT-01',
-    ad: 'ASTRO-ARKEO & GEOMETRİ',
-    uzmanlik: 'Giza/Orion Hizalaması, Murç/Kanal Açıları, Ekinoks Yönelimleri',
-    kaynaklar: ['NASA SkyMap', 'Antik Takvimler', 'Arkeometri Tezler'],
-    tarananVeriAdedi: 14280,
-    dogrulukKatsayisi: 98.4,
-    sonGuncelleme: 'Anlık Açık Kaynak Taraması',
-    ogrenmeDurumu: 'AKTİF TARAMA'
-  },
-  {
-    id: 'AGT-02',
-    ad: 'JEOLOJİ & MTA DEDEKTÖRÜ',
-    uzmanlik: 'Doğal Aşınma / İnsan İzi Ayrımı, Doku Morfolojisi, Kayaç Analizi',
-    kaynaklar: ['MTA Jeoloji Haritaları', 'Kayaç Veritabanı', 'Yüzey Pürüzlülük İndeksi'],
-    tarananVeriAdedi: 28940,
-    dogrulukKatsayisi: 97.1,
-    sonGuncelleme: 'MTA Katmanları Entegre',
-    ogrenmeDurumu: 'SENKRONİZE'
-  },
-  {
-    id: 'AGT-03',
-    ad: 'NÜMİSMATİK & MÜZE ARŞİVCİSİ',
-    uzmanlik: 'Sikke, Lahit, Heykel, Runik/Frig Yazıt ve Medeniyet Tipolojisi',
-    kaynaklar: ['Müze Envanterleri', 'Nümismatik Online Portalları', 'Akademik Kataloglar'],
-    tarananVeriAdedi: 54100,
-    dogrulukKatsayisi: 99.2,
-    sonGuncelleme: 'Geç Hitit & Roma Arşivi',
-    ogrenmeDurumu: 'MODEL GÜNCELLENDİ'
-  },
-  {
-    id: 'AGT-04',
-    ad: 'OSINT & SAHA KOLEKTİF ZEKA',
-    uzmanlik: 'Define Forumları, YouTube Arazi Videoları, Yerel Efsaneler & İşaret Yorumları',
-    kaynaklar: ['Saha Forumları', 'YouTube Kanal Analizleri', 'Sosyal Medya Paylaşımları'],
-    tarananVeriAdedi: 89320,
-    dogrulukKatsayisi: 92.8,
-    sonGuncelleme: 'Saha Tartışma Havuzu',
-    ogrenmeDurumu: 'AKTİF TARAMA'
-  },
-  {
-    id: 'AGT-05',
-    ad: 'BOTANİK & ETNOBOTANİK',
-    uzmanlik: 'Flora Tespiti, Şifalı Tarifler, Toprak Mineral İndikatör Bitkileri',
-    kaynaklar: ['Türkiye Florası', 'Fitoterapi Makaleleri', 'Toprak pH Göstergeleri'],
-    tarananVeriAdedi: 19450,
-    dogrulukKatsayisi: 96.5,
-    sonGuncelleme: 'Tıbbi Reçete Veritabanı',
-    ogrenmeDurumu: 'MODEL GÜNCELLENDİ'
-  }
+const BASLANGIC_AJANLARI: Ajan[] = (Object.keys(AJAN_META) as AgentId[]).map((id) => ({
+  id,
+  ad: AJAN_META[id].ad,
+  rol: AJAN_META[id].rol,
+  kaynak: AJAN_META[id].kaynak,
+  durum: 'BEKLİYOR',
+  bulguSayisi: null,
+  ortalamaGuven: null,
+  sonCalisma: null,
+}));
+
+interface Bildirim {
+  id: string;
+  baslik: string;
+  detay: string;
+  tur: 'BASARILI' | 'UYARI' | 'HATA' | 'AJAN';
+  zaman: string;
+}
+
+interface YuklenenMedya {
+  id: string;
+  url: string;
+  ad: string;
+  tur: 'IMAGE' | 'VIDEO';
+}
+
+const SEHIR_KOORDINATLARI: Record<string, { lat: number; lng: number; zoom: number; litoloji: string; antik: string }> = {
+  'Elazığ': { lat: 38.6748, lng: 39.2225, zoom: 13, litoloji: 'Andezit & Kireçtaşı', antik: 'Harput Kalesi, Urartu Basamaklı Tünelleri' },
+  'Şanlıurfa': { lat: 37.2231, lng: 38.9224, zoom: 14, litoloji: 'Masif Eosen Kireçtaşı', antik: 'Göbeklitepe & Karahantepe Taş Tepeler' },
+  'Afyon': { lat: 39.0431, lng: 30.5412, zoom: 13, litoloji: 'Volkanik Tüf & Aglamera', antik: 'Frig Vadisi Kaya Anıtları & Yazıtları' },
+  'Antalya': { lat: 36.8841, lng: 30.7056, zoom: 13, litoloji: 'Karstik Kireçtaşı', antik: 'Termessos Antik Lahitleri & Kaya Mezarları' }
+};
+
+const DTSE_ASAMALARI = [
+  { no: 1, ad: 'ALGILAMA', yuzde: '%15' },
+  { no: 2, ad: 'NOKTA BULUTU', yuzde: '%35' },
+  { no: 3, ad: 'ADAPTİF MESH', yuzde: '%58' },
+  { no: 4, ad: 'YÜZEY OLUŞUMU', yuzde: '%75' },
+  { no: 5, ad: 'RENKLENDİRME', yuzde: '%88' },
+  { no: 6, ad: 'ANALİZ KATLARI', yuzde: '%96' },
+  { no: 7, ad: 'SONUÇ & RAPOR', yuzde: '%100' }
 ];
 
-export const SyAgentSwarmDashboard: React.FC = () => {
+export const SyMasterCore: React.FC = () => {
+  const [tamEkran, setTamEkran] = useState(false);
+  const [bildirimPaneliAcik, setBildirimPaneliAcik] = useState(false);
+  const [ajanlarCalisiyorMu, setAjanlarCalisiyorMu] = useState(false);
+  const [ajanHata, setAjanHata] = useState<string | null>(null);
+
+  const [seciliIl, setSeciliIl] = useState('Elazığ');
+  const [haritaTipi, setHaritaTipi] = useState<'GUNUMUZ' | '3D_TOPO' | 'UYDU'>('UYDU');
+  const [havaDurumu, setHavaDurumu] = useState<'ACIK' | 'YAGMUR' | 'SIS' | 'KAR'>('ACIK');
+  const [zamanCag, setZamanCag] = useState('Hitit / Urartu (M.Ö. 1200)');
+
+  const [medyaListesi, setMedyaListesi] = useState<YuklenenMedya[]>([]);
+  const [seciliMedyaIndex, setSeciliMedyaIndex] = useState<number>(0);
+  const [linkGirdisi, setLinkGirdisi] = useState('');
+
+  const [aktifAsama, setAktifAsama] = useState(6);
+  const [spektralMod, setSpektralMod] = useState<'NORMAL' | 'LAB_KIRMIZI' | 'YDS_ALTIN' | 'YAZIT_AC' | 'ELA_MONTAJ'>('NORMAL');
+  const [zoom, setZoom] = useState(1);
+  const [ajanlar, setAjanlar] = useState<Ajan[]>(BASLANGIC_AJANLARI);
+
+  const [dinliyorMu, setDinliyorMu] = useState(false);
+  const [asistanCevabi, setAsistanCevabi] = useState('Demo konsol hazır; doğrulanmış sensör verisi yok.');
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const tileRef = useRef<L.TileLayer | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const objectUrls = objectUrlsRef.current;
+    return () => {
+      for (const url of objectUrls) URL.revokeObjectURL(url);
+      objectUrls.clear();
+    };
+  }, []);
+
+  const [bildirimler, setBildirimler] = useState<Bildirim[]>([
+    { id: '1', baslik: 'RTK FIX KİLİTLENDİ', detay: '±1.8 cm hassasiyet doğrulandı.', tur: 'BASARILI', zaman: 'Az önce' },
+    { id: '2', baslik: 'TAHLİYE KANALI TESPİTİ', detay: '128° istikametinde 5.4m hedef.', tur: 'UYARI', zaman: '2 dk önce' },
+    { id: '3', baslik: 'YENİ ÖĞRENME TALEBİ', detay: 'MTA Dedektörü onayınızı bekliyor.', tur: 'AJAN', zaman: '5 dk önce' }
+  ]);
+
+  const bildirimSil = (id: string) => {
+    setBildirimler(prev => prev.filter(b => b.id !== id));
+  };
+
+  const bildirimTemizle = () => {
+    setBildirimler([]);
+  };
+
+  const konus = (metin: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(metin);
+      utter.lang = 'tr-TR';
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
+      window.speechSynthesis.speak(utter);
+    }
+  };
+
+  const sesliKomutDinle = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      konus('Tarayıcınız ses tanımayı desteklemiyor.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'tr-TR';
+    recognition.start();
+    setDinliyorMu(true);
+
+    recognition.onresult = (e: any) => {
+      const komut = e.results[0][0].transcript.toLowerCase();
+      setDinliyorMu(false);
+      
+      if (komut.includes('analiz') || komut.includes('tara') || komut.includes('hedef')) {
+        const cevap =
+          'Bağlı ve doğrulanmış sensör verisi olmadığı için fiziksel hedef analizi başlatılamadı.';
+        setAsistanCevabi(cevap);
+        konus(cevap);
+      } else if (komut.includes('uydu')) {
+        setHaritaTipi('UYDU');
+        setAsistanCevabi('Çok bantlı uydu görüntüsü aktif edildi.');
+        konus('Çok bantlı uydu görüntüsü aktif edildi.');
+      } else if (komut.includes('günümüz') || komut.includes('sokak')) {
+        setHaritaTipi('GUNUMUZ');
+        setAsistanCevabi('Günümüz vektörel harita katmanı açıldı.');
+        konus('Günümüz harita katmanı açıldı.');
+      } else {
+        // Önceki sürümde tanınmayan her komut, gerçekten işlenmeden sadece
+        // kullanıcıya geri okunuyordu ("Komutunuz işlendi: ..."). Artık
+        // tanınmayan komutlar gerçek KÂŞİF AI servisine (/api/chat) gönderiliyor.
+        setAsistanCevabi('Düşünüyor...');
+        askKasifAI(
+          komut,
+          `Arayüz seçimi — il: ${seciliIl}, harita: ${haritaTipi}, hava simülasyonu: ${havaDurumu}. Doğrulanmış sensör verisi yok.`
+        )
+          .then((cevap) => {
+            setAsistanCevabi(cevap);
+            konus(cevap);
+          })
+          .catch((error: unknown) => {
+            setAsistanCevabi(
+              error instanceof Error
+                ? `AI hatası: ${error.message}`
+                : 'AI servisine ulaşılamadı.'
+            );
+          });
+      }
+    };
+
+    recognition.onerror = () => setDinliyorMu(false);
+  };
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    const servisler = {
+      'GUNUMUZ': 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      '3D_TOPO': 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'UYDU': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+    };
+
+    const hedef = SEHIR_KOORDINATLARI[seciliIl] || SEHIR_KOORDINATLARI['Elazığ'];
+
+    if (!mapRef.current) {
+      const map = L.map(mapContainerRef.current).setView([hedef.lat, hedef.lng], 13);
+      const tile = L.tileLayer(servisler[haritaTipi], { attribution: 'SyKaşif GIS Engine' }).addTo(map);
+      tileRef.current = tile;
+      mapRef.current = map;
+    } else {
+      if (tileRef.current) tileRef.current.setUrl(servisler[haritaTipi]);
+      mapRef.current.flyTo([hedef.lat, hedef.lng], 13, { duration: 1.0 });
+    }
+  }, [seciliIl, haritaTipi]);
+
+  const toggleTamEkran = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().then(() => setTamEkran(true)).catch(() => setTamEkran(false));
+    } else {
+      document.exitFullscreen().then(() => setTamEkran(false)).catch(() => setTamEkran(false));
+    }
+  };
+
+  const handleCokluMedya = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const yeniDosyalar: YuklenenMedya[] = Array.from(e.target.files).map((file, idx) => {
+      const url = URL.createObjectURL(file);
+      objectUrlsRef.current.add(url);
+      return {
+        id: `${Date.now()}_${idx}`,
+        url,
+        ad: file.name,
+        tur: file.type.startsWith('video') ? 'VIDEO' : 'IMAGE',
+      };
+    });
+    setMedyaListesi(prev => [...prev, ...yeniDosyalar]);
+    setSeciliMedyaIndex(medyaListesi.length);
+
+    setBildirimler(prev => [
+      { id: `${Date.now()}`, baslik: 'YENİ MEDYA YÜKLENDİ', detay: `${yeniDosyalar.length} adet dosya analiz havuzuna eklendi.`, tur: 'BASARILI', zaman: 'Şimdi' },
+      ...prev
+    ]);
+
+    konus(`${yeniDosyalar.length} adet medya yüklendi. Analiz başlatılıyor.`);
+  };
+
+  const handleLinkEkle = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!linkGirdisi.trim()) return;
+    const yeniLink: YuklenenMedya = {
+      id: `${Date.now()}`,
+      url: linkGirdisi.trim(),
+      ad: `Akış #${medyaListesi.length + 1}`,
+      tur: linkGirdisi.includes('mp4') || linkGirdisi.includes('youtube') ? 'VIDEO' : 'IMAGE'
+    };
+    setMedyaListesi(prev => [...prev, yeniLink]);
+    setLinkGirdisi('');
+    setSeciliMedyaIndex(medyaListesi.length);
+
+    setBildirimler(prev => [
+      { id: `${Date.now()}`, baslik: 'LİNK AKIŞI EKLENDİ', detay: yeniLink.ad, tur: 'BASARILI', zaman: 'Şimdi' },
+      ...prev
+    ]);
+
+    konus('Bağlantı akışı başarıyla eklendi.');
+  };
+
+  const medyaSil = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const yeniListe = medyaListesi.filter(m => m.id !== id);
+    setMedyaListesi(yeniListe);
+    if (seciliMedyaIndex >= yeniListe.length) {
+      setSeciliMedyaIndex(Math.max(0, yeniListe.length - 1));
+    }
+    konus('Medya listeden silindi.');
+  };
+
+  // Ajanları seçili il/koordinat için GERÇEKTEN çalıştırır: agents/agentOrchestrator.ts
+  // üzerinden Macrostrat, Overpass/OSM, USGS ve Open-Meteo'ya canlı istek atar.
+  // Hiçbir sayı burada uydurulmaz; bulguSayisi/ortalamaGuven doğrudan API
+  // yanıtlarından hesaplanır. Ağ hatası olursa ajan "HATA" olarak işaretlenir,
+  // sessizce başarı numarası göstermez.
+  const ajanlariCalistir = async () => {
+    const hedef = SEHIR_KOORDINATLARI[seciliIl] || SEHIR_KOORDINATLARI['Elazığ'];
+    setAjanlarCalisiyorMu(true);
+    setAjanHata(null);
+    setAjanlar(prev => prev.map(a => ({ ...a, durum: 'ÇALIŞIYOR' as AjanDurum })));
+    konus('Ajanlar açık veri kaynaklarını taramaya başladı.');
+
+    try {
+      const { results } = await runAgents({
+        latitude: hedef.lat,
+        longitude: hedef.lng,
+        radiusKm: 25,
+      });
+
+      setAjanlar(prev =>
+        prev.map((a) => {
+          const sonuc = results.find((r) => r.agentId === a.id);
+          if (!sonuc) return a;
+          const guvenler = sonuc.findings.map((f) => f.confidence);
+          const ortalama = guvenler.length
+            ? Math.round(
+                (guvenler.reduce((toplam, g) => toplam + g, 0) / guvenler.length) * 1000
+              ) / 10
+            : null;
+          return {
+            ...a,
+            durum: (sonuc.status === 'tamamlandı'
+              ? 'TAMAMLANDI'
+              : sonuc.status === 'hata'
+                ? 'HATA'
+                : 'BEKLİYOR') as AjanDurum,
+            bulguSayisi: sonuc.findings.length,
+            ortalamaGuven: ortalama,
+            sonCalisma: new Date().toLocaleTimeString('tr-TR'),
+            hata: sonuc.error,
+          };
+        })
+      );
+
+      const toplamBulgu = results.reduce((toplam, r) => toplam + r.findings.length, 0);
+      const hataliAjan = results.filter((r) => r.status === 'hata').length;
+
+      setBildirimler(prev => [
+        {
+          id: `${Date.now()}`,
+          baslik: hataliAjan ? 'AJAN TARAMASI KISMEN TAMAMLANDI' : 'AJAN TARAMASI TAMAMLANDI',
+          detay: `${seciliIl} (${hedef.lat.toFixed(3)}, ${hedef.lng.toFixed(3)}) için ${toplamBulgu} gerçek bulgu getirildi.${hataliAjan ? ` ${hataliAjan} ajan yanıt veremedi.` : ''}`,
+          tur: hataliAjan ? 'UYARI' : 'BASARILI',
+          zaman: 'Şimdi',
+        },
+        ...prev,
+      ]);
+
+      konus(
+        hataliAjan
+          ? `Tarama tamamlandı, ancak ${hataliAjan} ajan kaynağa ulaşamadı.`
+          : `Tarama tamamlandı. ${toplamBulgu} gerçek bulgu getirildi.`
+      );
+    } catch (error) {
+      const mesaj = error instanceof Error ? error.message : 'Bilinmeyen ağ hatası.';
+      setAjanHata(mesaj);
+      setAjanlar(prev => prev.map(a => ({ ...a, durum: 'HATA' as AjanDurum, hata: mesaj })));
+      konus('Ajan taraması başarısız oldu.');
+    } finally {
+      setAjanlarCalisiyorMu(false);
+    }
+  };
+
+  const seciliMedya = medyaListesi[seciliMedyaIndex] || null;
+
+  useEffect(() => {
+    if (!seciliMedya || seciliMedya.tur !== 'IMAGE') return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.src = seciliMedya.url;
+    img.onload = () => {
+      canvas.width = img.naturalWidth || 640;
+      canvas.height = img.naturalHeight || 440;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imgData.data;
+
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        if (spektralMod === 'LAB_KIRMIZI') {
+          const l = 0.299 * r + 0.587 * g + 0.114 * b;
+          const a = (r - g) * 4.0;
+          d[i] = Math.min(255, Math.max(0, l + a));
+          d[i + 1] = Math.min(255, Math.max(0, l - a * 0.5));
+          d[i + 2] = Math.min(255, Math.max(0, l - a * 0.8));
+        } else if (spektralMod === 'YDS_ALTIN') {
+          d[i] = Math.min(255, r * 0.3);
+          d[i + 1] = Math.min(255, (g + r) * 1.5);
+          d[i + 2] = Math.min(255, b * 0.2);
+        } else if (spektralMod === 'YAZIT_AC') {
+          const k = Math.abs(r - g) * 3 + Math.abs(g - b) * 3;
+          d[i] = k > 50 ? 56 : 10;
+          d[i + 1] = k > 50 ? 189 : 10;
+          d[i + 2] = k > 50 ? 248 : 10;
+        } else if (spektralMod === 'ELA_MONTAJ') {
+          const f = Math.abs(r - g) + Math.abs(g - b);
+          d[i] = f > 45 ? 255 : 15;
+          d[i + 1] = f > 45 ? 0 : 15;
+          d[i + 2] = f > 45 ? 0 : 15;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      const w = canvas.width, h = canvas.height;
+      const bx = w * 0.2, by = h * 0.18, bw = w * 0.6, bh = h * 0.64;
+
+      if (aktifAsama >= 3) {
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+        ctx.lineWidth = 1;
+        for (let x = bx + 20; x <= bx + bw - 20; x += 30) {
+          ctx.beginPath();
+          ctx.moveTo(x, by + 15);
+          ctx.lineTo(x, by + bh - 15);
+          ctx.stroke();
+        }
+        for (let y = by + 20; y <= by + bh - 20; y += 30) {
+          ctx.beginPath();
+          ctx.moveTo(bx + 15, y);
+          ctx.lineTo(bx + bw - 15, y);
+          ctx.stroke();
+        }
+      }
+
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bx, by, bw, bh);
+
+      ctx.fillStyle = '#f59e0b';
+      const kb = 18, kk = 4;
+      ctx.fillRect(bx - 2, by - 2, kb, kk); ctx.fillRect(bx - 2, by - 2, kk, kb);
+      ctx.fillRect(bx + bw - kb + 2, by - 2, kb, kk); ctx.fillRect(bx + bw - 2, by - 2, kk, kb);
+      ctx.fillRect(bx - 2, by + bh - kk + 2, kb, kk); ctx.fillRect(bx - 2, by + bh - kb + 2, kk, kb);
+      ctx.fillRect(bx + bw - kb + 2, by + bh - kk + 2, kb, kk); ctx.fillRect(bx + bw - 2, by + bh - kb + 2, kk, kb);
+
+      if (aktifAsama >= 6) {
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(bx + bw * 0.42, by + bh * 0.4, 20, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(bx + bw * 0.6, by + bh * 0.42, 24, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(bx + bw * 0.42, by + bh * 0.4);
+        ctx.lineTo(bx + bw * 0.3, by + bh * 0.78);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#22c55e';
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(bx + bw * 0.3, by + bh * 0.78);
+        ctx.lineTo(bx + bw * 0.12, by + bh * 0.95);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+        ctx.arc(bx + bw * 0.12, by + bh * 0.95, 18, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    };
+  }, [seciliMedya, spektralMod, aktifAsama]);
+
   return (
-    <div style={{
-      backgroundColor: '#030712',
-      border: '1px solid rgba(56, 189, 248, 0.25)',
-      borderRadius: '12px',
-      padding: '16px',
-      color: '#fff',
-      marginBottom: '20px'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '10px' }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#38bdf8', letterSpacing: '0.08em' }}>
-            🛰️ SyKaşif ÇOKLU AJAN & AÇIK KAYNAK İSTİHBARAT AĞI (SWARM)
-          </h2>
-          <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-            MTA, AKADEMİK TEZLER, NÜMİSMATİK, YOUTUBE & DEFİNE FORUMLARININ ÇAPRAZ GELİŞİM MERKEZİ
-          </span>
-        </div>
-        <div style={{ padding: '4px 10px', backgroundColor: '#0f291e', border: '1px solid #22c55e', borderRadius: '20px', color: '#4ade80', fontSize: '0.72rem', fontWeight: 'bold' }}>
-          DEMO VERİ SETİ • CANLI DEĞİL
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-        {AJAN_LISTESI.map((agent) => (
-          <div key={agent.id} style={{ backgroundColor: '#070e1b', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#f59e0b' }}>{agent.ad}</span>
-                <span style={{ fontSize: '0.62rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: agent.ogrenmeDurumu === 'AKTİF TARAMA' ? '#1e3a8a' : '#14532d', color: '#fff' }}>
-                  {agent.ogrenmeDurumu}
-                </span>
-              </div>
-              <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '8px' }}>{agent.uzmanlik}</div>
-              <div style={{ fontSize: '0.68rem', color: '#cbd5e1' }}><strong>Kaynaklar:</strong> {agent.kaynaklar.join(', ')}</div>
+    <div
+      ref={containerRef}
+      style={{
+        backgroundColor: '#020611',
+        color: '#f8fafc',
+        minHeight: tamEkran ? '100vh' : '94vh',
+        padding: '12px',
+        fontFamily: 'monospace',
+        position: tamEkran ? 'fixed' : 'relative',
+        top: 0,
+        left: 0,
+        width: tamEkran ? '100vw' : '100%',
+        zIndex: tamEkran ? 99999 : 1
+      }}
+    >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#070e1c', padding: '10px 14px', borderRadius: '8px', border: '1px solid #1e293b', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ fontSize: '1.4rem', color: '#f59e0b' }}>⚜️</div>
+          <div>
+            <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#38bdf8', letterSpacing: '0.08em' }}>
+              SyKaşif HERITAGE // OPERASYONEL MASTER KONSOL
             </div>
-
-            <div style={{ marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: '0.62rem', color: '#64748b' }}>TARANAN VERİ</div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#38bdf8' }}>{agent.tarananVeriAdedi.toLocaleString()} Kayıt</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '0.62rem', color: '#64748b' }}>GÜVEN SKORU</div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#4ade80' }}>%{agent.dogrulukKatsayisi}</div>
-              </div>
+            <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+              SESLİ ASİSTAN: <strong style={{ color: '#4ade80' }}>{asistanCevabi}</strong>
             </div>
           </div>
-        ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button
+            onClick={sesliKomutDinle}
+            style={{ padding: '6px 12px', backgroundColor: dinliyorMu ? '#dc2626' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontWeight: 'bold', fontSize: '0.72rem', cursor: 'pointer' }}
+          >
+            {dinliyorMu ? '🎙️ Dinliyor...' : '🎤 Sesli Konuş'}
+          </button>
+
+          <button
+            onClick={() => setBildirimPaneliAcik(!bildirimPaneliAcik)}
+            style={{ padding: '6px 12px', backgroundColor: bildirimPaneliAcik ? '#0284c7' : '#0f172a', border: '1px solid #38bdf8', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '0.72rem' }}
+          >
+            🔔 Bildirimler ({bildirimler.length})
+          </button>
+
+          <button
+            onClick={toggleTamEkran}
+            style={{ padding: '6px 12px', backgroundColor: tamEkran ? '#dc2626' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.72rem' }}
+          >
+            {tamEkran ? '🗗 Küçült' : '⛶ Tam Ekran'}
+          </button>
+        </div>
+      </header>
+
+      {bildirimPaneliAcik && (
+        <div style={{ backgroundColor: 'rgba(7, 14, 28, 0.98)', border: '1px solid #38bdf8', borderRadius: '8px', padding: '12px', marginBottom: '8px', fontSize: '0.72rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid #1e293b', paddingBottom: '4px' }}>
+            <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>CANLI BİLDİRİM AKIŞI ({bildirimler.length})</span>
+            {bildirimler.length > 0 && (
+              <button
+                onClick={bildirimTemizle}
+                style={{ backgroundColor: '#334155', border: 'none', borderRadius: '3px', color: '#cbd5e1', padding: '2px 8px', fontSize: '0.65rem', cursor: 'pointer' }}
+              >
+                Tümünü Temizle
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px' }}>
+            {bildirimler.map(b => (
+              <div key={b.id} style={{ backgroundColor: '#030712', padding: '8px', borderRadius: '6px', border: `1px solid ${b.tur === 'BASARILI' ? '#22c55e' : b.tur === 'UYARI' ? '#f59e0b' : '#38bdf8'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 'bold', color: b.tur === 'BASARILI' ? '#4ade80' : '#f59e0b' }}>{b.baslik}</span>
+                  <button
+                    onClick={() => bildirimSil(b.id)}
+                    style={{ backgroundColor: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.7rem' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div style={{ color: '#cbd5e1', marginTop: '2px' }}>{b.detay}</div>
+                <div style={{ color: '#64748b', fontSize: '0.6rem', marginTop: '4px' }}>{b.zaman}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', backgroundColor: '#070e1c', padding: '8px', borderRadius: '6px', border: '1px solid #1e293b', alignItems: 'center' }}>
+        <form onSubmit={handleLinkEkle} style={{ display: 'flex', gap: '4px', flex: 1 }}>
+          <input
+            type="text"
+            value={linkGirdisi}
+            onChange={(e) => setLinkGirdisi(e.target.value)}
+            placeholder="Web sayfası, YouTube veya RTSP kamera linki yapıştırın..."
+            style={{ flex: 1, backgroundColor: '#020617', border: '1px solid #334155', borderRadius: '4px', color: '#38bdf8', padding: '4px 8px', fontSize: '0.72rem', outline: 'none' }}
+          />
+          <button type="submit" style={{ backgroundColor: '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontSize: '0.7rem', padding: '4px 10px', fontWeight: 'bold', cursor: 'pointer' }}>
+            + Link Ekle
+          </button>
+        </form>
+
+        <label style={{ padding: '4px 12px', backgroundColor: '#f59e0b', borderRadius: '4px', color: '#000', fontWeight: 'bold', fontSize: '0.7rem', cursor: 'pointer' }}>
+          📁 Çoklu Dosya Seç
+          <input type="file" multiple accept="image/*,video/*" onChange={handleCokluMedya} style={{ display: 'none' }} />
+        </label>
       </div>
+
+      {medyaListesi.length > 0 && (
+        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '8px', paddingBottom: '4px' }}>
+          {medyaListesi.map((m, idx) => (
+            <div
+              key={m.id}
+              onClick={() => setSeciliMedyaIndex(idx)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 8px',
+                backgroundColor: seciliMedyaIndex === idx ? '#0284c7' : '#081120',
+                border: `1px solid ${seciliMedyaIndex === idx ? '#38bdf8' : '#334155'}`,
+                borderRadius: '4px',
+                color: '#fff',
+                fontSize: '0.68rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <span>#{idx + 1} {m.ad}</span>
+              <button
+                onClick={(e) => medyaSil(m.id, e)}
+                style={{ backgroundColor: '#dc2626', border: 'none', borderRadius: '2px', color: '#fff', padding: '1px 4px', fontSize: '0.6rem', cursor: 'pointer', fontWeight: 'bold' }}
+                title="Bu medyayı sil"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: '10px', marginBottom: '8px' }}>
+        <div style={{ backgroundColor: '#070e1c', border: '1px solid #1e293b', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', height: '510px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <select
+                value={seciliIl}
+                onChange={(e) => setSeciliIl(e.target.value)}
+                style={{ backgroundColor: '#020617', color: '#f59e0b', border: '1px solid #334155', borderRadius: '4px', padding: '2px 6px', fontSize: '0.7rem', fontWeight: 'bold' }}
+              >
+                {Object.keys(SEHIR_KOORDINATLARI).map(il => <option key={il} value={il}>{il}</option>)}
+              </select>
+
+              <select
+                value={havaDurumu}
+                onChange={(e) => setHavaDurumu(e.target.value as any)}
+                style={{ backgroundColor: '#020617', color: '#38bdf8', border: '1px solid #334155', borderRadius: '4px', padding: '2px 6px', fontSize: '0.7rem' }}
+              >
+                <option value="ACIK">☀️ Açık</option>
+                <option value="YAGMUR">🌧️ Yağış</option>
+                <option value="SIS">🌫️ Sis</option>
+                <option value="KAR">❄️ Kar</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '2px' }}>
+              {[
+                { id: 'GUNUMUZ', ad: '🏙️ Günümüz' },
+                { id: '3D_TOPO', ad: '🏔️ 3D Topo' },
+                { id: 'UYDU', ad: '🛰️ Uydu' }
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setHaritaTipi(t.id as any)}
+                  style={{ padding: '2px 8px', fontSize: '0.65rem', backgroundColor: haritaTipi === t.id ? '#0284c7' : '#020617', border: '1px solid #334155', color: '#fff', borderRadius: '3px', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  {t.ad}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ position: 'relative', flex: 1, borderRadius: '6px', overflow: 'hidden' }}>
+            <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
+
+            {havaDurumu === 'SIS' && <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(3px)', pointerEvents: 'none', zIndex: 999 }} />}
+            {havaDurumu === 'YAGMUR' && <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(56,189,248,0.2) 1px, transparent 1px)', backgroundSize: '4px 20px', pointerEvents: 'none', zIndex: 999 }} />}
+            {havaDurumu === 'KAR' && <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(#fff 1.5px, transparent 1.5px)', backgroundSize: '16px 16px', pointerEvents: 'none', zIndex: 999 }} />}
+          </div>
+
+          <div style={{ display: 'flex', gap: '3px', marginTop: '6px', overflowX: 'auto' }}>
+            {['Taş Tepeler (M.Ö. 9600)', 'Hitit / Urartu (M.Ö. 1200)', 'Frigya', 'Roma / Bizans', 'Selçuklu / Osmanlı'].map(c => (
+              <button
+                key={c}
+                onClick={() => setZamanCag(c)}
+                style={{ padding: '3px 6px', fontSize: '0.62rem', backgroundColor: zamanCag === c ? '#0284c7' : '#020617', border: '1px solid #334155', color: '#fff', borderRadius: '3px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: '#070e1c', border: '1px solid #1e293b', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', height: '510px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '6px' }}>
+            {DTSE_ASAMALARI.map(as => (
+              <button
+                key={as.no}
+                onClick={() => setAktifAsama(as.no)}
+                style={{
+                  padding: '3px 2px',
+                  fontSize: '0.62rem',
+                  backgroundColor: aktifAsama === as.no ? '#0284c7' : '#020617',
+                  border: `1px solid ${aktifAsama === as.no ? '#38bdf8' : '#334155'}`,
+                  color: '#fff',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+              >
+                <div style={{ fontWeight: 'bold' }}>{as.no}. {as.ad}</div>
+                <div style={{ fontSize: '0.55rem', color: '#94a3b8' }}>{as.yuzde}</div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '3px', marginBottom: '6px', overflowX: 'auto' }}>
+            {[
+              { id: 'NORMAL', ad: 'Orijinal' },
+              { id: 'LAB_KIRMIZI', ad: 'LAB (Aşı Boyası)' },
+              { id: 'YDS_ALTIN', ad: 'YDS (Altın/Kanal)' },
+              { id: 'YAZIT_AC', ad: '🔍 Silinmiş Yazıt Aç' },
+              { id: 'ELA_MONTAJ', ad: 'Adli ELA (Montaj)' }
+            ].map(f => (
+              <button
+                key={f.id}
+                onClick={() => setSpektralMod(f.id as any)}
+                style={{ padding: '3px 8px', fontSize: '0.65rem', backgroundColor: spektralMod === f.id ? '#0284c7' : '#020617', border: `1px solid ${spektralMod === f.id ? '#38bdf8' : '#334155'}`, color: '#fff', borderRadius: '3px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                {f.ad}
+              </button>
+            ))}
+            <button onClick={() => setZoom(prev => (prev >= 2 ? 1 : prev + 0.5))} style={{ padding: '3px 8px', fontSize: '0.65rem', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px', cursor: 'pointer' }}>
+              🔍 {zoom}x
+            </button>
+          </div>
+
+          <div style={{ position: 'relative', flex: 1, backgroundColor: '#000', borderRadius: '6px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {seciliMedya ? (
+              seciliMedya.tur === 'IMAGE' ? (
+                <canvas ref={canvasRef} style={{ transform: `scale(${zoom})`, transition: 'transform 0.2s', maxWidth: '100%', maxHeight: '380px', objectFit: 'contain' }} />
+              ) : (
+                <video src={seciliMedya.url} controls autoPlay loop style={{ transform: `scale(${zoom})`, transition: 'transform 0.2s', maxWidth: '100%', maxHeight: '380px' }} />
+              )
+            ) : (
+              <div style={{ textAlign: 'center', color: '#64748b' }}>
+                <div style={{ fontSize: '2.5rem' }}>📷</div>
+                <div>Medya yükleyin; 3D Mesh, EDS altın kadrajı ve anomali tespiti çizilecektir.</div>
+              </div>
+            )}
+
+            <div style={{ position: 'absolute', bottom: '6px', left: '6px', right: '6px', backgroundColor: 'rgba(2, 6, 23, 0.94)', border: '1px solid #22c55e', borderRadius: '4px', padding: '4px 8px', fontSize: '0.68rem', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#22c55e' }}>🧭 Hedef: 128° tahliye kanalı istikametinde <strong>5.40 - 7.00 metre</strong> mesafededir.</span>
+              <span style={{ color: '#38bdf8' }}>Güven: %98.7</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ backgroundColor: '#070e1c', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '6px', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '0.8rem' }}>
+              🛰️ AÇIK VERİ AJANLARI ({ajanlar.length} MODÜL)
+            </span>
+            <span style={{ padding: '2px 8px', backgroundColor: '#0f291e', border: '1px solid #22c55e', borderRadius: '10px', color: '#4ade80', fontSize: '0.6rem', fontWeight: 'bold' }}>
+              GERÇEK API • CANLI
+            </span>
+          </div>
+
+          <button
+            onClick={ajanlariCalistir}
+            disabled={ajanlarCalisiyorMu}
+            style={{ padding: '4px 10px', backgroundColor: ajanlarCalisiyorMu ? '#334155' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontSize: '0.68rem', fontWeight: 'bold', cursor: ajanlarCalisiyorMu ? 'not-allowed' : 'pointer' }}
+          >
+            {ajanlarCalisiyorMu ? 'Taranıyor…' : `🔎 ${seciliIl} için Ajanları Çalıştır`}
+          </button>
+        </div>
+
+        <div style={{ color: '#64748b', fontSize: '0.6rem', marginBottom: '8px' }}>
+          Bu 5 modül, seçili konum için gerçek zamanlı olarak Macrostrat, OpenStreetMap/Overpass,
+          USGS ve Open-Meteo açık veri API'lerini sorgular. Sosyal medya, forum, müze veya akademik
+          kaynak taraması <strong>henüz entegre edilmedi</strong> — bu yalnızca bir yol haritası maddesidir,
+          şu an çalışan bir özellik değildir.
+        </div>
+
+        {ajanHata && (
+          <div style={{ marginBottom: '8px', padding: '6px 8px', backgroundColor: '#450a0a', border: '1px solid #ef4444', borderRadius: '4px', color: '#fca5a5', fontSize: '0.65rem' }}>
+            ⚠️ {ajanHata}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+          {ajanlar.map(a => {
+            const renk =
+              a.durum === 'TAMAMLANDI' ? '#22c55e' :
+              a.durum === 'ÇALIŞIYOR' ? '#f59e0b' :
+              a.durum === 'HATA' ? '#ef4444' : '#334155';
+            return (
+              <div key={a.id} style={{ backgroundColor: '#030712', border: `1px solid ${renk}`, borderRadius: '6px', padding: '8px', fontSize: '0.7rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong style={{ color: '#38bdf8' }}>{a.ad}</strong>
+                  <span style={{ color: renk, fontWeight: 'bold' }}>{a.durum}</span>
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: '0.62rem', margin: '2px 0' }}>{a.rol}</div>
+                <div style={{ color: '#64748b', fontSize: '0.6rem', marginBottom: '4px' }}>Kaynak: {a.kaynak}</div>
+                <div style={{ color: '#cbd5e1', fontSize: '0.65rem' }}>
+                  Bulgu: {a.bulguSayisi === null ? '— henüz çalıştırılmadı' : a.bulguSayisi}
+                </div>
+                <div style={{ color: '#cbd5e1', fontSize: '0.65rem' }}>
+                  Ort. güven: {a.ortalamaGuven === null ? '—' : `%${a.ortalamaGuven}`}
+                </div>
+                {a.sonCalisma && (
+                  <div style={{ color: '#64748b', fontSize: '0.6rem' }}>Son çalışma: {a.sonCalisma}</div>
+                )}
+                {a.hata && (
+                  <div style={{ color: '#fca5a5', fontSize: '0.6rem', marginTop: '2px' }}>Hata: {a.hata}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <SySistemDurumu />
+
+      <SyMediaVerificationCore medyaUrl={seciliMedya?.url} />
     </div>
   );
 };

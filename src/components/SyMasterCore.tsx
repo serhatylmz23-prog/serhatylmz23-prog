@@ -2,20 +2,47 @@ import React, { useState, useRef, useEffect } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { SyMediaVerificationCore } from './SyMediaVerificationCore';
+import { SySistemDurumu } from './SySistemDurumu';
 import { askKasifAI } from '../services/aiService';
+import { runAgents } from '../agents/agentOrchestrator';
+import type { AgentId } from '../agents/agentTypes';
+
+// Panelde gösterilen 5 ajan, agents/agents/*.ts içindeki GERÇEK modüllerle
+// birebir eşleşir. Buradaki "ad/rol" sadece görüntü metnidir; sayısal
+// alanlar (bulguSayisi, ortalamaGuven, sonCalisma) YALNIZCA gerçek bir
+// runAgents() çağrısından sonra doldurulur. Sabit/uydurma sayı YOKTUR.
+const AJAN_META: Record<AgentId, { ad: string; rol: string; kaynak: string }> = {
+  jeoloji: { ad: 'Jeoloji Ajanı', rol: 'Açık jeolojik birim verisi', kaynak: 'Macrostrat API' },
+  arkeoloji: { ad: 'Arkeoloji Ajanı', rol: 'Kültürel miras / arkeolojik alan kaydı', kaynak: 'OpenStreetMap (Overpass API)' },
+  sismoloji: { ad: 'Sismoloji Ajanı', rol: 'Son 30 gün deprem kataloğu', kaynak: 'USGS Earthquake Catalog' },
+  meteoroloji: { ad: 'Meteoroloji Ajanı', rol: 'Güncel hava koşulları', kaynak: 'Open-Meteo Forecast API' },
+  uydu: { ad: 'Uydu Ajanı', rol: 'Uydu/hava fotoğrafı katman kaynağı', kaynak: 'Esri World Imagery' },
+};
+
+type AjanDurum = 'BEKLİYOR' | 'ÇALIŞIYOR' | 'TAMAMLANDI' | 'HATA';
 
 interface Ajan {
-  id: string;
+  id: AgentId;
   ad: string;
   rol: string;
-  kayitSayisi: number;
-  guven: number;
-  ogrenmeTalebi?: {
-    konu: string;
-    kaynak: string;
-    tarih: string;
-  };
+  kaynak: string;
+  durum: AjanDurum;
+  bulguSayisi: number | null;
+  ortalamaGuven: number | null;
+  sonCalisma: string | null;
+  hata?: string;
 }
+
+const BASLANGIC_AJANLARI: Ajan[] = (Object.keys(AJAN_META) as AgentId[]).map((id) => ({
+  id,
+  ad: AJAN_META[id].ad,
+  rol: AJAN_META[id].rol,
+  kaynak: AJAN_META[id].kaynak,
+  durum: 'BEKLİYOR',
+  bulguSayisi: null,
+  ortalamaGuven: null,
+  sonCalisma: null,
+}));
 
 interface Bildirim {
   id: string;
@@ -39,14 +66,6 @@ const SEHIR_KOORDINATLARI: Record<string, { lat: number; lng: number; zoom: numb
   'Antalya': { lat: 36.8841, lng: 30.7056, zoom: 13, litoloji: 'Karstik Kireçtaşı', antik: 'Termessos Antik Lahitleri & Kaya Mezarları' }
 };
 
-const BASLANGIC_AJANLARI: Ajan[] = [
-  { id: 'AG-01', ad: 'ASTRO-ARKEO DEDEKTÖRÜ', rol: 'Göbeklitepe Ekinoks & Hizalama', kayitSayisi: 14280, guven: 98.4 },
-  { id: 'AG-02', ad: 'JEOLOJİ & MTA DEDEKTÖRÜ', rol: 'Litoloji, Karstik Boşluk & Fay Analizi', kayitSayisi: 28940, guven: 97.1, ogrenmeTalebi: { konu: '2026 Doğu Anadolu Yeni Litoloji Katmanı', kaynak: 'MTA Açık Veri Portalı', tarih: 'Bugün' } },
-  { id: 'AG-03', ad: 'NÜMİZMATİK & MÜZE ARŞİVİ', rol: 'Sikke, Lahit & Tipoloji Eşleştirme', kayitSayisi: 54100, guven: 99.2 },
-  { id: 'AG-04', ad: 'OSINT & DEFİNE KOLEKTİF', rol: 'Saha Forumları & Video Çapraz Tarama', kayitSayisi: 89320, guven: 92.8, ogrenmeTalebi: { konu: 'Harput Yeraltı Galerileri Yeni Çizim Modeli', kaynak: 'Akademik Bildiri', tarih: '1 saat önce' } },
-  { id: 'AG-05', ad: 'BOTANİK & ETNOBOTANİK', rol: 'İndikatör Bitki & Toprak pH Analizi', kayitSayisi: 19450, guven: 96.5 }
-];
-
 const DTSE_ASAMALARI = [
   { no: 1, ad: 'ALGILAMA', yuzde: '%15' },
   { no: 2, ad: 'NOKTA BULUTU', yuzde: '%35' },
@@ -60,8 +79,8 @@ const DTSE_ASAMALARI = [
 export const SyMasterCore: React.FC = () => {
   const [tamEkran, setTamEkran] = useState(false);
   const [bildirimPaneliAcik, setBildirimPaneliAcik] = useState(false);
-  const [ajanModalAcik, setAjanModalAcik] = useState(false);
-  const [onayBekleyenAjan, setOnayBekleyenAjan] = useState<Ajan | null>(null);
+  const [ajanlarCalisiyorMu, setAjanlarCalisiyorMu] = useState(false);
+  const [ajanHata, setAjanHata] = useState<string | null>(null);
 
   const [seciliIl, setSeciliIl] = useState('Elazığ');
   const [haritaTipi, setHaritaTipi] = useState<'GUNUMUZ' | '3D_TOPO' | 'UYDU'>('UYDU');
@@ -258,34 +277,77 @@ export const SyMasterCore: React.FC = () => {
     konus('Medya listeden silindi.');
   };
 
-  const yeniAjanEkle = () => {
-    const uzmanliklar = [
-      { ad: 'SPEKTROMETRE & METALURJİ DEDEKTÖRÜ', rol: 'Altın/Bakır XRF Spektral Ayrışımı' },
-      { ad: '3D FOTOGRAMETRİ & DİJİTAL İKİZ AJANI', rol: 'Mesh / Yüzey Pürüzlülük Hesaplama' },
-      { ad: 'RADAR & LİDAR SAHA İSTİHBARATI', rol: 'Ducted-Fan İHA Telemetri Analizi' },
-      { ad: 'HİDROJEOLOJİ & YERALTI SU AJANI', rol: 'Karstik Akifer & Nem Anomalisi' }
-    ];
-    const yeniUzmanlik = uzmanliklar[Math.floor(Math.random() * uzmanliklar.length)];
-    const yeniAjan: Ajan = {
-      id: `AG-0${ajanlar.length + 1}`,
-      ad: yeniUzmanlik.ad,
-      rol: yeniUzmanlik.rol,
-      kayitSayisi: 1200,
-      guven: 98.0,
-      ogrenmeTalebi: {
-        konu: 'Yeni Saha Veri Seti & Öğrenme Modeli',
-        kaynak: 'Saha Sensör Ağı',
-        tarih: 'Şimdi'
-      }
-    };
-    setAjanlar(prev => [...prev, yeniAjan]);
+  // Ajanları seçili il/koordinat için GERÇEKTEN çalıştırır: agents/agentOrchestrator.ts
+  // üzerinden Macrostrat, Overpass/OSM, USGS ve Open-Meteo'ya canlı istek atar.
+  // Hiçbir sayı burada uydurulmaz; bulguSayisi/ortalamaGuven doğrudan API
+  // yanıtlarından hesaplanır. Ağ hatası olursa ajan "HATA" olarak işaretlenir,
+  // sessizce başarı numarası göstermez.
+  const ajanlariCalistir = async () => {
+    const hedef = SEHIR_KOORDINATLARI[seciliIl] || SEHIR_KOORDINATLARI['Elazığ'];
+    setAjanlarCalisiyorMu(true);
+    setAjanHata(null);
+    setAjanlar(prev => prev.map(a => ({ ...a, durum: 'ÇALIŞIYOR' as AjanDurum })));
+    konus('Ajanlar açık veri kaynaklarını taramaya başladı.');
 
-    setBildirimler(prev => [
-      { id: `${Date.now()}`, baslik: 'YENİ AJAN EKLENDİ', detay: yeniAjan.ad, tur: 'AJAN', zaman: 'Şimdi' },
-      ...prev
-    ]);
+    try {
+      const { results } = await runAgents({
+        latitude: hedef.lat,
+        longitude: hedef.lng,
+        radiusKm: 25,
+      });
 
-    konus(`Yeni uzman ajan sürüye katıldı: ${yeniAjan.ad}. Onay bekliyor.`);
+      setAjanlar(prev =>
+        prev.map((a) => {
+          const sonuc = results.find((r) => r.agentId === a.id);
+          if (!sonuc) return a;
+          const guvenler = sonuc.findings.map((f) => f.confidence);
+          const ortalama = guvenler.length
+            ? Math.round(
+                (guvenler.reduce((toplam, g) => toplam + g, 0) / guvenler.length) * 1000
+              ) / 10
+            : null;
+          return {
+            ...a,
+            durum: (sonuc.status === 'tamamlandı'
+              ? 'TAMAMLANDI'
+              : sonuc.status === 'hata'
+                ? 'HATA'
+                : 'BEKLİYOR') as AjanDurum,
+            bulguSayisi: sonuc.findings.length,
+            ortalamaGuven: ortalama,
+            sonCalisma: new Date().toLocaleTimeString('tr-TR'),
+            hata: sonuc.error,
+          };
+        })
+      );
+
+      const toplamBulgu = results.reduce((toplam, r) => toplam + r.findings.length, 0);
+      const hataliAjan = results.filter((r) => r.status === 'hata').length;
+
+      setBildirimler(prev => [
+        {
+          id: `${Date.now()}`,
+          baslik: hataliAjan ? 'AJAN TARAMASI KISMEN TAMAMLANDI' : 'AJAN TARAMASI TAMAMLANDI',
+          detay: `${seciliIl} (${hedef.lat.toFixed(3)}, ${hedef.lng.toFixed(3)}) için ${toplamBulgu} gerçek bulgu getirildi.${hataliAjan ? ` ${hataliAjan} ajan yanıt veremedi.` : ''}`,
+          tur: hataliAjan ? 'UYARI' : 'BASARILI',
+          zaman: 'Şimdi',
+        },
+        ...prev,
+      ]);
+
+      konus(
+        hataliAjan
+          ? `Tarama tamamlandı, ancak ${hataliAjan} ajan kaynağa ulaşamadı.`
+          : `Tarama tamamlandı. ${toplamBulgu} gerçek bulgu getirildi.`
+      );
+    } catch (error) {
+      const mesaj = error instanceof Error ? error.message : 'Bilinmeyen ağ hatası.';
+      setAjanHata(mesaj);
+      setAjanlar(prev => prev.map(a => ({ ...a, durum: 'HATA' as AjanDurum, hata: mesaj })));
+      konus('Ajan taraması başarısız oldu.');
+    } finally {
+      setAjanlarCalisiyorMu(false);
+    }
   };
 
   const seciliMedya = medyaListesi[seciliMedyaIndex] || null;
@@ -663,83 +725,71 @@ export const SyMasterCore: React.FC = () => {
       </div>
 
       <div style={{ backgroundColor: '#070e1c', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '6px', marginBottom: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '6px', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '0.8rem' }}>
-              🛰️ CANLI AJAN SÜRÜSÜ ({ajanlar.length} UZMAN AJAN ÇALIŞIYOR)
+              🛰️ AÇIK VERİ AJANLARI ({ajanlar.length} MODÜL)
+            </span>
+            <span style={{ padding: '2px 8px', backgroundColor: '#0f291e', border: '1px solid #22c55e', borderRadius: '10px', color: '#4ade80', fontSize: '0.6rem', fontWeight: 'bold' }}>
+              GERÇEK API • CANLI
             </span>
           </div>
 
           <button
-            onClick={yeniAjanEkle}
-            style={{ padding: '4px 10px', backgroundColor: '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontSize: '0.68rem', fontWeight: 'bold', cursor: 'pointer' }}
+            onClick={ajanlariCalistir}
+            disabled={ajanlarCalisiyorMu}
+            style={{ padding: '4px 10px', backgroundColor: ajanlarCalisiyorMu ? '#334155' : '#0284c7', border: 'none', borderRadius: '4px', color: '#fff', fontSize: '0.68rem', fontWeight: 'bold', cursor: ajanlarCalisiyorMu ? 'not-allowed' : 'pointer' }}
           >
-            + Yeni Uzman Ajan Çoğalt
+            {ajanlarCalisiyorMu ? 'Taranıyor…' : `🔎 ${seciliIl} için Ajanları Çalıştır`}
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
-          {ajanlar.map(a => (
-            <div key={a.id} style={{ backgroundColor: '#030712', border: `1px solid ${a.ogrenmeTalebi ? '#f59e0b' : '#334155'}`, borderRadius: '6px', padding: '8px', fontSize: '0.7rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <strong style={{ color: '#38bdf8' }}>{a.ad}</strong>
-                <span style={{ color: '#4ade80' }}>%{a.guven}</span>
-              </div>
-              <div style={{ color: '#94a3b8', fontSize: '0.62rem', margin: '2px 0' }}>{a.rol}</div>
-              <div style={{ color: '#cbd5e1', fontSize: '0.65rem' }}>Arşiv: {a.kayitSayisi} Kayıt</div>
+        <div style={{ color: '#64748b', fontSize: '0.6rem', marginBottom: '8px' }}>
+          Bu 5 modül, seçili konum için gerçek zamanlı olarak Macrostrat, OpenStreetMap/Overpass,
+          USGS ve Open-Meteo açık veri API'lerini sorgular. Sosyal medya, forum, müze veya akademik
+          kaynak taraması <strong>henüz entegre edilmedi</strong> — bu yalnızca bir yol haritası maddesidir,
+          şu an çalışan bir özellik değildir.
+        </div>
 
-              {a.ogrenmeTalebi && (
-                <div style={{ marginTop: '6px', backgroundColor: '#1e1b4b', padding: '6px', borderRadius: '4px', border: '1px solid #6366f1' }}>
-                  <div style={{ color: '#f59e0b', fontWeight: 'bold' }}>⚠️ YENİ METOT TESPİT EDİLDİ</div>
-                  <div style={{ color: '#e0e7ff', fontSize: '0.62rem' }}>{a.ogrenmeTalebi.konu}</div>
-                  <button
-                    onClick={() => { setOnayBekleyenAjan(a); setAjanModalAcik(true); }}
-                    style={{ marginTop: '4px', width: '100%', backgroundColor: '#4f46e5', border: 'none', borderRadius: '3px', color: '#fff', fontSize: '0.65rem', padding: '3px', cursor: 'pointer', fontWeight: 'bold' }}
-                  >
-                    Operatör Onayı Ver
-                  </button>
+        {ajanHata && (
+          <div style={{ marginBottom: '8px', padding: '6px 8px', backgroundColor: '#450a0a', border: '1px solid #ef4444', borderRadius: '4px', color: '#fca5a5', fontSize: '0.65rem' }}>
+            ⚠️ {ajanHata}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+          {ajanlar.map(a => {
+            const renk =
+              a.durum === 'TAMAMLANDI' ? '#22c55e' :
+              a.durum === 'ÇALIŞIYOR' ? '#f59e0b' :
+              a.durum === 'HATA' ? '#ef4444' : '#334155';
+            return (
+              <div key={a.id} style={{ backgroundColor: '#030712', border: `1px solid ${renk}`, borderRadius: '6px', padding: '8px', fontSize: '0.7rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong style={{ color: '#38bdf8' }}>{a.ad}</strong>
+                  <span style={{ color: renk, fontWeight: 'bold' }}>{a.durum}</span>
                 </div>
-              )}
-            </div>
-          ))}
+                <div style={{ color: '#94a3b8', fontSize: '0.62rem', margin: '2px 0' }}>{a.rol}</div>
+                <div style={{ color: '#64748b', fontSize: '0.6rem', marginBottom: '4px' }}>Kaynak: {a.kaynak}</div>
+                <div style={{ color: '#cbd5e1', fontSize: '0.65rem' }}>
+                  Bulgu: {a.bulguSayisi === null ? '— henüz çalıştırılmadı' : a.bulguSayisi}
+                </div>
+                <div style={{ color: '#cbd5e1', fontSize: '0.65rem' }}>
+                  Ort. güven: {a.ortalamaGuven === null ? '—' : `%${a.ortalamaGuven}`}
+                </div>
+                {a.sonCalisma && (
+                  <div style={{ color: '#64748b', fontSize: '0.6rem' }}>Son çalışma: {a.sonCalisma}</div>
+                )}
+                {a.hata && (
+                  <div style={{ color: '#fca5a5', fontSize: '0.6rem', marginTop: '2px' }}>Hata: {a.hata}</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {ajanModalAcik && onayBekleyenAjan && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ backgroundColor: '#070e1c', border: '1px solid #38bdf8', borderRadius: '8px', padding: '20px', maxWidth: '440px', width: '90%' }}>
-            <div style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '1rem', marginBottom: '8px' }}>
-              🛡️ AJAN ÖĞRENME ENTEGRASYON ONAYI
-            </div>
-            <div style={{ fontSize: '0.75rem', color: '#cbd5e1', lineHeight: '1.4', marginBottom: '12px' }}>
-              <strong>{onayBekleyenAjan.ad}</strong>, açık kaynak taramasında yeni bir veri paketi buldu:<br/><br/>
-              📌 <strong>Konu:</strong> {onayBekleyenAjan.ogrenmeTalebi?.konu}<br/>
-              🌐 <strong>Kaynak:</strong> {onayBekleyenAjan.ogrenmeTalebi?.kaynak}<br/><br/>
-              Bu öğrenme paketinin SyKaşif çekirdeğine entegre edilmesini onaylıyor musunuz?
-            </div>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setAjanModalAcik(false)}
-                style={{ padding: '6px 14px', backgroundColor: '#334155', border: 'none', borderRadius: '4px', color: '#fff', fontSize: '0.72rem', cursor: 'pointer' }}
-              >
-                Reddet
-              </button>
-              <button
-                onClick={() => {
-                  setAjanlar(prev => prev.map(a => a.id === onayBekleyenAjan.id ? { ...a, ogrenmeTalebi: undefined, kayitSayisi: a.kayitSayisi + 500, guven: 99.8 } : a));
-                  setAjanModalAcik(false);
-                  const onayMetni = `${onayBekleyenAjan.ad} yeni öğrenme paketini hafızasına başarıyla entegre etti.`;
-                  setAsistanCevabi(onayMetni);
-                  konus(onayMetni);
-                }}
-                style={{ padding: '6px 14px', backgroundColor: '#22c55e', border: 'none', borderRadius: '4px', color: '#000', fontWeight: 'bold', fontSize: '0.72rem', cursor: 'pointer' }}
-              >
-                Onayla ve Entegre Et
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SySistemDurumu />
 
       <SyMediaVerificationCore medyaUrl={seciliMedya?.url} />
     </div>
