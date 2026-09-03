@@ -1,0 +1,32 @@
+[
+  {
+    "external_url": "https://www.skylinewebcams.com/en/webcam/turkey/marmara/istanbul/bosphorus.html",
+    "feed_url": "/api/cctv/proxy?url=https%3A%2F%2Fcdn3.skylinewebcams.com%2Flive505.jpg",
+    "name": "Istanbul - Bosphorus Strait & Maiden's Tower"
+  },
+  {
+    "external_url": "https://www.skylinewebcams.com/en/webcam/turkey/marmara/istanbul/hagia-sophia.html",
+    "feed_url": "/api/cctv/proxy?url=https%3A%2F%2Fcdn3.skylinewebcams.com%2Flive506.jpg",
+    "name": "Istanbul - Hagia Sophia & Sultanahmet Square"
+  },
+  {
+    "external_url": "https://www.skylinewebcams.com/en/webcam/turkey/marmara/istanbul/taksim-square.html",
+    "feed_url": "/api/cctv/proxy?url=https%3A%2F%2Fcdn3.skylinewebcams.com%2Flive507.jpg",
+    "name": "Istanbul - Taksim Square & Istiklal Street"
+  },
+  {
+    "external_url": "https://www.skylinewebcams.com/en/webcam/turkey/anatolia-region/nevsehir/cappadocia.html",
+    "feed_url": "/api/cctv/proxy?url=https%3A%2F%2Fcdn3.skylinewebcams.com%2Flive508.jpg",
+    "name": "Nevşehir - Cappadocia & Fairy Chimneys"
+  },
+  {
+    "external_url": "https://www.skylinewebcams.com/en/webcam/turkey/mediterranean-region/antalya/alanya.html",
+    "feed_url": "/api/cctv/proxy?url=https%3A%2F%2Fcdn3.skylinewebcams.com%2Flive509.jpg",
+    "name": "Antalya - Alanya Cleopatra Beach"
+  },
+  {
+    "external_url": "https://www.skylinewebcams.com/en/webcam/turkey/aegean-region/izmir/konak-square.html",
+    "feed_url": "/api/cctv/proxy?url=https%3A%2F%2Fcdn3.skylinewebcams.com%2Flive510.jpg",
+    "name": "Izmir - Konak Square & Clock Tower"
+  }
+]
