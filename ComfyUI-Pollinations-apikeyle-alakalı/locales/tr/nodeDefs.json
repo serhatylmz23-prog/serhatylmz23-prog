@@ -1,0 +1,108 @@
+{
+  "PollinationsImageGen": {
+    "display_name": "Görsel Üretimi (Pollinations)",
+    "inputs": {
+      "prompt": {
+        "name": "İstem (Prompt)"
+      },
+      "model": {
+        "name": "Model"
+      },
+      "width": {
+        "name": "Genişlik"
+      },
+      "height": {
+        "name": "Yükseklik"
+      },
+      "batch_size": {
+        "name": "Grup Boyutu (Batch Size)"
+      },
+      "negative_prompt": {
+        "name": "Negatif İstem"
+      },
+      "seed": {
+        "name": "Tohum (Seed)"
+      },
+      "enhance": {
+        "name": "İyileştir / Geliştir"
+      },
+      "nologo": {
+        "name": "Logosuz"
+      },
+      "private": {
+        "name": "Gizli / Özel"
+      },
+      "safe": {
+        "name": "Güvenli İçerik"
+      }
+    }
+  },
+  "PollinationsTextGen": {
+    "display_name": "Metin Üretimi (Pollinations)",
+    "inputs": {
+      "prompt": {
+        "name": "İstem (Prompt)"
+      },
+      "model": {
+        "name": "Model"
+      },
+      "seed": {
+        "name": "Tohum (Seed)"
+      },
+      "private": {
+        "name": "Gizli / Özel"
+      }
+    }
+  },
+  "PollinationsTextToSpeech": {
+    "display_name": "Metinden Sese Sohbet (Pollinations)",
+    "inputs": {
+      "text": {
+        "name": "Metin"
+      },
+      "voice": {
+        "name": "Ses"
+      },
+      "seed": {
+        "name": "Tohum (Seed)"
+      },
+      "private": {
+        "name": "Gizli / Özel"
+      }
+    }
+  },
+  "PollinationsImageFeed": {
+    "display_name": "Görsel Akışı (Pollinations)",
+    "inputs": {
+      "count": {
+        "name": "Adet / Sayı"
+      },
+      "model": {
+        "name": "Model"
+      },
+      "prompt": {
+        "name": "İstem (Prompt)"
+      },
+      "force_refresh": {
+        "name": "Yenilemeye Zorla"
+      }
+    }
+  },
+  "PollinationsTextFeed": {
+    "display_name": "Metin Akışı (Pollinations)",
+    "inputs": {
+      "count": {
+        "name": "Adet / Sayı"
+      },
+      "model": {
+        "name": "Model"
+      },
+      "prompt": {
+        "name": "İstem (Prompt)"
+      },
+      "force_refresh": {
+        "name": "Yenilemeye Zorla"
+      }
+    }
+  }
+}
