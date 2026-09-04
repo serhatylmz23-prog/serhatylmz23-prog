@@ -67,10 +67,10 @@ export interface SyContextValue {
 
   clearAlerts: () => void;
 
-  selectedLocation: SyLocation;
+  selectedLocation: SyLocation | null;
 
   setSelectedLocation: React.Dispatch<
-    React.SetStateAction<SyLocation>
+    React.SetStateAction<SyLocation | null>
   >;
 
   systemStatus: string;
@@ -173,11 +173,14 @@ export function SyProvider({
   const [
     selectedLocation,
     setSelectedLocation,
-  ] = useState<SyLocation>({
-    lat: 39.0,
-    lng: 35.0,
-    name: 'Türkiye',
-  });
+  ] = useState<SyLocation | null>(
+    // NOT: Daha önce burada { lat: 39.0, lng: 35.0, name: 'Türkiye' }
+    // sabit değeri vardı ve harita her açıldığında "SEÇİLEN KONUM" paneli
+    // sanki kullanıcı bir yer tıklamış gibi bu noktayı gösteriyordu — bu
+    // kafa karıştırıcıydı ("neden hep aynı noktayı işaret ediyor?").
+    // Artık gerçekten bir tıklama ya da GPS konumu olana kadar null kalır.
+    null
+  );
 
   const [
     systemStatus,
